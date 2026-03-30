@@ -1,7 +1,9 @@
-
+<details>
+  <summary><b>中文文档</b></summary>
+  
 # Note Editor - 你的故事第二大脑 🧠
-
-厌倦了在记事本和酒馆之间反复横跳？灵感来了找不到地方记，世界观设定散落一地？
+  
+厌倦了在笔记本和酒馆之间反复横跳？灵感来了找不到地方记，世界观设定散落一地？
 
 **Note Editor** 就是你的解决方案。它是一个内置于酒馆的双模式编辑器，让你在一个清爽的界面里，同时管理你的灵感笔记和角色的世界书。
 
@@ -70,6 +72,7 @@
 - 切换语言（中文 / English）
 - 定制默认模式：每次打开，是先进入笔记本，还是世界书控制室？
 - 预设新词条模板：为你未来的创作铺好第一块砖。
+- 隐藏/显示世界书词条数量统计
 
 ### 📱 移动端体验指南
 
@@ -86,13 +89,15 @@
 2.  **尊重外部修改**：如果你在插件之外修改了世界书，插件会智能检测到变动并尝试同步，而不是粗暴地覆盖掉你的心血。
 3.  **保存是“整本书”的行为**：修改一个词条的任何地方，保存时都会是对整本世界书的完整写入。这是为了和 SillyTavern 的原生逻辑保持一致。
 
-当前版本：`0.1.0`
+当前版本：`0.1.1`
+</details>
 
----
-
+<details>
+  <summary><b> English Docs</b></summary>
+  
 # Note Editor - Your Story's Second Brain 🧠
 
-Tired of juggling a dozen text files and SillyTavern's UI? Lost that brilliant idea in a sea of unsaved drafts?
+Tired of juggling a dozen text files and SillyTavern's UI? 
 
 **Note Editor** is your new command center. It's a dual-mode editor living right inside SillyTavern, designed to manage both your private creative notes and your character's active lorebooks in one clean, powerful interface.
 
@@ -101,22 +106,22 @@ Browse on the left, create on the right. Let's build some worlds.
 ### ✨ One Panel, Two Modes
 
 -   **Notes Mode (Your Private Journal)**: A personal scratchpad just for you. Plot bunnies, character sketches, random dialogue—it all lives here, autosaved and managed by the plugin.
--   **Lorebook Mode (The World's Architect)**: This is the real deal. You're editing live SillyTavern lorebook files directly. Every change you make is a change to your world's source code. Backups are your friend.
-
+-   **Lorebook Mode (The World's Architect)**: This is the real deal. You're editing live SillyTavern lorebook files directly. Every change you make is a change to the lorebooks itself.
+  
 ### 🚀 Quick Start in 10 Seconds
 
 Open the extensions menu (the magic wand) → find `Note Editor` → Let the writing begin!
 
 ---
 
-## 📚 Mode One: Notes - Your Creative Sanctuary
+## 📚 Mode One: Notes 
 
 This is your space to be messy, to experiment, to create.
 
 -   **Capture Ideas Instantly**: Click "Create note", give it a title, and let your thoughts flow.
--   **Build Your System (Folders)**: Tame the chaos with folders. Perfect for separating "Character Bios," "Plot Outlines," and "Random Junk I Might Need Later."
--   **Keep It Front and Center (Pin)**: Pin your most important notes to the top. No more digging for that one crucial piece of information.
--   **Tag, You're It (Tags)**: More flexible than folders. Think of them as sticky notes. A character bio could be tagged with #Protagonist, #Mage, and #Grumpy. Filter by any tag in the sidebar.
+-   **Build Your System (Folders)**: Perfect for separating "Character Bios," "Plot Outlines," and "Random Thoughts"
+-   **Keep It Front and Center (Pin)**: Pin your most important notes to the top. No more digging for that one important file.
+-   **Tagsss (Tags)**: More flexible than folders. Think of them as sticky notes. A character bio could be tagged with #Protagonist, #Mage, and #Grumpy. Filter by any tag in the sidebar.
 -   **Find Anything, Fast (Search + Preview)**: Search titles and content, layer on tag filters, and flip to the Markdown preview anytime to see your formatting come to life.
 
 ---
@@ -124,8 +129,6 @@ This is your space to be messy, to experiment, to create.
 ## 🌍 Mode Two: Lorebook - The Control Room
 
 Welcome, Architect. Here, you directly shape the information that defines your world and characters.
-
-> **The Golden Rule: Navigate the map on the left, write the history on the right.** Master this, and you've mastered the editor.
 
 #### Summoning Your Lorebooks
 
@@ -137,19 +140,11 @@ The workspace intelligently loads lorebooks linked to your current character. To
 
 #### Breathing Life into Your World
 
--   **Create a New Lore Entry**: Click "Create lore entry," choose its home (the lorebook), its stage (position), and its cue (prompt order). Pro-tip: know where it should go? Use the "create" button right on the group header to skip a step.
+-   **Create a New Lore Entry**: Click "Create lore entry," choose its home (the lorebook), its stage (position), and its cue (prompt order). Know where it should go already? Use the "create" button right on the group header to skip a step.
 -   **Forge a New Lorebook**: On the "Create" panel, switch to the "New Lorebook" tab, give your new world a name, and hit create. A real file is born.
 
-#### Editing the Fine Print
-
-| In the Editor | What it Really Is |
-|---|---|
-| Title | `comment` |
-| Body | `content` |
-
--   **Keywords (The Magic Words)**: This is how an entry gets triggered. Expand the keyword panel, type your keys, and choose the logic. Getting this right is the secret to making your lore appear at the perfect moment.
--   **Advanced Spells**: Options like "Non-recursable" and "Probability" are powerful tools for advanced users. If you're new to this, you can safely ignore them. Great content, keywords, and positioning are what matter most.
--   **Sidebar Remote Control**: Enable/disable, toggle constant vs. keyword activation, delete. The sidebar is for quick, decisive actions. The editor is for thoughtful composition.
+-   **Keywords**: This is how an entry gets triggered. Expand the keyword panel, type your keys, and choose the logic. You can also type in #keyword, hit enter, to quickly add to main keywords.
+-   **Sidebar Remote Control**: Enable/disable, toggle constant vs. keyword activation, delete. The sidebar is for quick actions. The editor is for thoughtful composition.
 
 #### The Art of Prompt Weaving (Positions & Order)
 
@@ -157,13 +152,12 @@ Think of every entry as a card you're inserting into the final prompt sent to th
 
 -   **Position**: This determines *which section* of the prompt the card goes into (e.g., before the character's definition, after the example dialogue).
 -   **Prompt Order**: This sorts the cards *within* the same section.
+-   **Sidebar Order** : The order entries appears in sidebar is the order they will be sent to ai when triggered. 
 
-**Rule of Thumb**: Foundational rules and core identity go early. Supporting details and context go later.
-
-#### Search Across Space and Time
+#### Search
 
 Search hits titles, body summaries, and all keywords.
-**Pro-Tip**: For the most accurate results, expand the lorebook you're targeting in the sidebar *before* you search.
+Expand the lorebook you're targeting in the sidebar before you search. Useful for hundreds of entries.
 
 #### To Banish, or to Destroy?
 
@@ -181,6 +175,7 @@ The delete panel offers a critical choice:
 -   Language (中文 / English)
 -   Default mode on open (start in Notes or Lorebook?)
 -   Default settings for new lore entries to streamline your workflow.
+-   Display number of entries in each lorebook
 
 ### 📱 On The Go (Mobile Usage)
 
@@ -195,9 +190,10 @@ For the best mobile experience, we recommend this flow:
 
 Know these before you begin.
 
-1.  **This Is Not a Drill.** The plugin edits your real SillyTavern data directly. What you see is what you get.
+1.  **This Is Not a Drill.** The plugin edits your real SillyTavern lorebook data directly. What you see is what you get.
 2.  **External Changes Are Respected.** If you edit a file outside the plugin, it will detect the change and prompt you to sync, not silently overwrite your work.
 3.  **Saving is a Whole-Book Affair.** Modifying a single entry saves the *entire lorebook*. This is intentional and matches SillyTavern's native behavior, ensuring data integrity.
 
 
-Current version: `0.1.0`
+Current version: `0.1.1`
+</details>
