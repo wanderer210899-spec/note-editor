@@ -328,6 +328,17 @@ function renderSidebarTools(model, activeSource) {
 }
 
 function handleSidebarClick(event) {
+    const swipeRow = event.target.closest('[data-swipe-row-key]');
+    if (
+        swipeRow
+        && uiState.swipeConsumedRowKey
+        && swipeRow.dataset.swipeRowKey === uiState.swipeConsumedRowKey
+    ) {
+        uiState.swipeConsumedRowKey = '';
+        event.preventDefault();
+        return;
+    }
+
     const actionButton = event.target.closest('[data-action]');
     if (actionButton && handleSidebarAction(actionButton.dataset.action, actionButton, {
         createNote: createNoteFromSidebar,
@@ -348,8 +359,10 @@ function handleSidebarClick(event) {
 }
 
 function handleSidebarPointerDown(event) {
+    uiState.swipeConsumedRowKey = '';
+
     if (event.target.closest('[data-field-action]')) {
-        touchSwipeState = null;
+        clearTouchSwipeState();
         return;
     }
 
@@ -358,11 +371,23 @@ function handleSidebarPointerDown(event) {
         event.preventDefault();
     }
 
+    clearTouchSwipeState();
     touchSwipeState = beginSidebarSwipe(event);
+    if (!touchSwipeState || !rootEl) {
+        return;
+    }
+
+    try {
+        rootEl.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+        if (error?.name !== 'NotFoundError') {
+            console.warn('[NoteEditor] Pointer capture failed on sidebar swipe start.', error);
+        }
+    }
 }
 
 function handleSidebarPointerUp(event) {
-    touchSwipeState = null;
+    clearTouchSwipeState(event);
 
     if (event.target?.id === 'ne-note-search') {
         syncSidebarSearch(event.target);
@@ -612,6 +637,7 @@ function createDefaultSidebarUiState() {
     return {
         moveMenuNoteId: null,
         revealedRowKey: '',
+        swipeConsumedRowKey: '',
         pendingSearchFocus: null,
         searchSelection: null,
         searchSuggestionIndex: 0,
@@ -805,13 +831,39 @@ function getActiveSearchTagSuggestions() {
 }
 
 function handleSidebarSwipeMove(event) {
+    const previousTouchSwipeState = touchSwipeState;
     const { nextTouchSwipeState, shouldRender } = updateSidebarSwipe(event, touchSwipeState, uiState);
     touchSwipeState = nextTouchSwipeState;
+    if (
+        previousTouchSwipeState
+        && !previousTouchSwipeState.handled
+        && nextTouchSwipeState?.handled
+        && nextTouchSwipeState.axis === 'x'
+    ) {
+        uiState.swipeConsumedRowKey = previousTouchSwipeState.rowKey;
+    }
     if (shouldRender) {
         renderSidebarController();
     }
 }
 
 function handleSidebarSwipeEnd() {
+    clearTouchSwipeState();
+}
+
+function clearTouchSwipeState(event = null) {
+    if (!touchSwipeState) {
+        return;
+    }
+
+    const pointerId = event?.pointerId ?? touchSwipeState.pointerId;
+    try {
+        rootEl?.releasePointerCapture?.(pointerId);
+    } catch (error) {
+        if (error?.name !== 'NotFoundError') {
+            console.warn('[NoteEditor] Pointer capture release failed on sidebar swipe end.', error);
+        }
+    }
+
     touchSwipeState = null;
 }

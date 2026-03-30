@@ -57,6 +57,14 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
         startY = event.clientY;
         pendingDrag = true;
         draggingFromTitle = Boolean(titleButton);
+
+        try {
+            refs.root.setPointerCapture?.(event.pointerId);
+        } catch (error) {
+            if (error?.name !== 'NotFoundError') {
+                console.warn('[NoteEditor] Pointer capture failed on toolbar drag pointerdown.', error);
+            }
+        }
     });
 
     refs.root.addEventListener('pointermove', (event) => {
@@ -73,12 +81,6 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
             pendingDrag = false;
             if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
                 onExitFullscreen?.();
-            }
-
-            try {
-                refs.root.setPointerCapture?.(event.pointerId);
-            } catch (error) {
-                console.warn('[NoteEditor] Pointer capture failed on toolbar drag start.', error);
             }
 
             if (draggingFromTitle && refs.titleButton) {

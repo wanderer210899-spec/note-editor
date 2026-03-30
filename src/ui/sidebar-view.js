@@ -177,7 +177,7 @@ function renderNoteSectionHeader(section, model) {
 
     return `
         <header class="ne-sidebar__section-header ne-folder-row${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
-            <div class="ne-folder-row__main">
+            <div class="ne-folder-row__main" data-swipe-handle="true">
                 <h3 class="ne-sidebar__section-title">${escapeHtml(section.title)}</h3>
             </div>
             <div class="ne-row-actions" aria-label="${escapeHtml(t('notes.folder.actions'))}">
@@ -197,7 +197,7 @@ function renderNoteRow(note, section, model, source) {
 
     return `
         <article class="ne-note-row${activeClass}${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
-            <button class="ne-note-row__main" type="button" data-document-id="${escapeHtml(note.id)}" data-note-id="${escapeHtml(note.id)}">
+            <button class="ne-note-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(note.id)}" data-note-id="${escapeHtml(note.id)}">
                 <span class="ne-note-row__title-line">
                     <span class="ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
                     ${note.pinned ? `<span class="ne-note-row__pin" aria-label="${escapeHtml(t('notes.row.pinned'))}" title="${escapeHtml(t('notes.row.pinned'))}"><i class="fa-solid fa-thumbtack"></i></span>` : ''}
@@ -421,6 +421,7 @@ function renderLorebookSection(lorebook, model) {
                 <button
                     class="ne-btn ne-btn--soft ne-btn--icon ne-lorebook-folder__caret"
                     type="button"
+                    data-swipe-handle="true"
                     data-action="toggle-workspace-lorebook-expansion"
                     data-slot-id="${escapeHtml(lorebook.slotId)}"
                     aria-label="${escapeHtml(lorebook.isExpanded ? t('lorebook.row.collapse', { name: lorebook.name }) : t('lorebook.row.expand', { name: lorebook.name }))}"
@@ -431,6 +432,7 @@ function renderLorebookSection(lorebook, model) {
                 <button
                     class="ne-folder-row__main ne-lorebook-folder__main"
                     type="button"
+                    data-swipe-handle="true"
                     data-action="open-replace-workspace-lorebook-picker"
                     data-slot-id="${escapeHtml(lorebook.slotId)}"
                     aria-label="${escapeHtml(t('lorebook.row.replaceSlot', { name: lorebook.name }))}"
@@ -724,7 +726,7 @@ function renderLoreEntryRow(entry, lorebook, model) {
     return `
         <article class="ne-note-row ne-lore-row${activeClass}${revealedClass}${disabledClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
             <div class="ne-lore-row__body">
-                <button class="ne-note-row__main ne-lore-row__main" type="button" data-document-id="${escapeHtml(entry.id)}" data-lorebook-id="${escapeHtml(lorebook.id)}">
+                <button class="ne-note-row__main ne-lore-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(entry.id)}" data-lorebook-id="${escapeHtml(lorebook.id)}">
                     <span class="ne-note-row__title-line">
                         <span class="ne-lore-row__title-wrap">
                             <span class="ne-lore-row__activation ${escapeHtml(activationClass)}" title="${escapeHtml(activationLabel)}" aria-label="${escapeHtml(activationLabel)}"></span>
