@@ -15,6 +15,7 @@ function createDefaultSettings() {
         defaultSource: 'note',  // 'note' | 'lorebook'
         newEntryExcludeRecursion: false,
         newEntryPreventRecursion: false,
+        showLorebookEntryCounters: true,
     };
 }
 
@@ -31,6 +32,7 @@ function readPersistedSettings() {
         defaultSource: stored.defaultSource === 'lorebook' ? 'lorebook' : 'note',
         newEntryExcludeRecursion: Boolean(stored.newEntryExcludeRecursion),
         newEntryPreventRecursion: Boolean(stored.newEntryPreventRecursion),
+        showLorebookEntryCounters: stored.showLorebookEntryCounters !== false,
     };
 }
 
@@ -72,6 +74,10 @@ export function setSettingsNewEntryPreventRecursion(value) {
     updateSettings({ newEntryPreventRecursion: Boolean(value) });
 }
 
+export function setSettingsShowLorebookEntryCounters(value) {
+    updateSettings({ showLorebookEntryCounters: Boolean(value) });
+}
+
 function updateSettings(changes) {
     const next = { ...settings, ...changes };
 
@@ -88,7 +94,8 @@ function isSameSettings(left, right) {
     return left.language === right.language
         && left.defaultSource === right.defaultSource
         && left.newEntryExcludeRecursion === right.newEntryExcludeRecursion
-        && left.newEntryPreventRecursion === right.newEntryPreventRecursion;
+        && left.newEntryPreventRecursion === right.newEntryPreventRecursion
+        && left.showLorebookEntryCounters === right.showLorebookEntryCounters;
 }
 
 function emitChange() {

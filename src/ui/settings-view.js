@@ -10,6 +10,7 @@ export function renderSettingsPanel(settingsState) {
         defaultSource = 'note',
         newEntryExcludeRecursion = false,
         newEntryPreventRecursion = false,
+        showLorebookEntryCounters = true,
     } = settingsState ?? {};
 
     return `
@@ -60,6 +61,18 @@ export function renderSettingsPanel(settingsState) {
                         ${newEntryPreventRecursion ? 'checked' : ''}
                     />
                     <span>${escapeHtml(t('settings.newEntry.preventRecursion'))}</span>
+                </label>
+            </section>
+
+            <section class="ne-settings-panel__section">
+                <p class="ne-settings-panel__section-label">${escapeHtml(t('settings.section.lorebookSidebar'))}</p>
+                <label class="ne-settings-panel__checkbox-row">
+                    <input
+                        type="checkbox"
+                        data-settings-field="showLorebookEntryCounters"
+                        ${showLorebookEntryCounters ? 'checked' : ''}
+                    />
+                    <span>${escapeHtml(t('settings.lorebook.showEntryCounters'))}</span>
                 </label>
             </section>
         </div>

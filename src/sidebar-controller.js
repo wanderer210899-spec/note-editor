@@ -46,6 +46,7 @@ import {
     setSettingsDefaultSource,
     setSettingsNewEntryExcludeRecursion,
     setSettingsNewEntryPreventRecursion,
+    setSettingsShowLorebookEntryCounters,
 } from './state/settings-store.js';
 
 let rootEl = null;
@@ -492,6 +493,10 @@ function handleSettingsFieldChange(field, target) {
     }
     if (field === 'newEntryPreventRecursion') {
         setSettingsNewEntryPreventRecursion(target.checked);
+        return;
+    }
+    if (field === 'showLorebookEntryCounters') {
+        setSettingsShowLorebookEntryCounters(target.checked);
     }
 }
 

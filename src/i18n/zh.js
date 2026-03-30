@@ -19,6 +19,8 @@ export default {
     'settings.section.newEntry': '新词条默认设置',
     'settings.newEntry.excludeRecursion': '自动勾选「不可递归」',
     'settings.newEntry.preventRecursion': '自动勾选「阻止进一步递归」',
+    'settings.section.lorebookSidebar': '世界书侧边栏',
+    'settings.lorebook.showEntryCounters': '显示世界书词条计数气泡',
 
     // ── 侧边栏顶部按钮 ───────────────────────────────────────────────────────
     'sidebar.btn.newNote': '新建笔记',
@@ -217,6 +219,10 @@ export default {
     'editorShell.format.italic': '斜体',
     'editorShell.format.heading': '标题',
     'editorShell.format.quote': '引用',
+    'editorShell.format.unordered': '项目符号列表',
+    'editorShell.format.ordered': '编号列表',
+    'editorShell.format.indent': '增加缩进',
+    'editorShell.format.outdent': '减少缩进',
     'editorShell.format.clear': '清除格式',
     'editorShell.format.clearShort': '清除',
     'editorShell.contentLabel': '文档内容',

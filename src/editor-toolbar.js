@@ -101,13 +101,8 @@ export function updateTagsMenuPlacement(tagsMenuEl, anchorEl = null) {
         return;
     }
 
+    prepareFloatingPanelPlacement(tagsMenuEl);
     tagsMenuEl.classList.remove('ne-tags-menu--flip');
-    tagsMenuEl.style.position = 'fixed';
-    tagsMenuEl.style.left = '8px';
-    tagsMenuEl.style.top = '8px';
-    tagsMenuEl.style.right = 'auto';
-    tagsMenuEl.style.bottom = 'auto';
-    tagsMenuEl.style.transform = '';
 
     requestAnimationFrame(() => {
         if (tagsMenuEl.hidden) {
@@ -147,8 +142,7 @@ export function updateTagsMenuPlacement(tagsMenuEl, anchorEl = null) {
             tagsMenuEl.classList.add('ne-tags-menu--flip');
         }
 
-        tagsMenuEl.style.left = `${Math.round(clampedLeft)}px`;
-        tagsMenuEl.style.top = `${Math.round(nextTop)}px`;
+        finalizeFloatingPanelPlacement(tagsMenuEl, clampedLeft, nextTop);
     });
 }
 
@@ -157,12 +151,7 @@ export function updateLoreOverflowPanelPlacement(overflowPanelEl, anchorEl = nul
         return;
     }
 
-    overflowPanelEl.style.position = 'fixed';
-    overflowPanelEl.style.left = '8px';
-    overflowPanelEl.style.top = '8px';
-    overflowPanelEl.style.right = 'auto';
-    overflowPanelEl.style.bottom = 'auto';
-    overflowPanelEl.style.transform = '';
+    prepareFloatingPanelPlacement(overflowPanelEl);
 
     requestAnimationFrame(() => {
         if (overflowPanelEl.hidden) {
@@ -206,11 +195,28 @@ export function updateLoreOverflowPanelPlacement(overflowPanelEl, anchorEl = nul
                 Math.max(viewportBounds.top, viewportBounds.bottom - panelHeight),
             );
 
-        overflowPanelEl.style.left = `${Math.round(nextLeft)}px`;
-        overflowPanelEl.style.top = `${Math.round(nextTop)}px`;
+        finalizeFloatingPanelPlacement(overflowPanelEl, nextLeft, nextTop);
     });
 }
 
 function clampNumber(value, min, max) {
     return Math.max(min, Math.min(max, value));
+}
+
+function prepareFloatingPanelPlacement(panelEl) {
+    panelEl.dataset.positioning = 'true';
+    panelEl.style.visibility = 'hidden';
+    panelEl.style.position = 'fixed';
+    panelEl.style.left = '8px';
+    panelEl.style.top = '8px';
+    panelEl.style.right = 'auto';
+    panelEl.style.bottom = 'auto';
+    panelEl.style.transform = '';
+}
+
+function finalizeFloatingPanelPlacement(panelEl, left, top) {
+    panelEl.style.left = `${Math.round(left)}px`;
+    panelEl.style.top = `${Math.round(top)}px`;
+    panelEl.style.visibility = '';
+    delete panelEl.dataset.positioning;
 }

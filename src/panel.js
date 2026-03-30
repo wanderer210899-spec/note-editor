@@ -404,6 +404,7 @@ function applyToolbarLayout() {
         return;
     }
 
+    refs.root.dataset.layouting = 'true';
     const availableActions = getAvailableToolbarOptionalActions(refs);
     let compact = false;
     let hiddenActions = [];
@@ -433,6 +434,7 @@ function applyToolbarLayout() {
     }
 
     renderToolbarOverflowMenuContent();
+    delete refs.root.dataset.layouting;
 }
 
 function getAvailableToolbarOptionalActions(refs) {

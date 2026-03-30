@@ -35,6 +35,9 @@ export function renderSidebarShell({ source = 'note' } = {}) {
                     <button class="ne-btn ne-btn--soft ne-btn--icon" type="button" data-action="open-add-workspace-lorebook-picker" aria-label="${escapeHtml(t('sidebar.btn.addLorebook'))}" title="${escapeHtml(t('sidebar.btn.addLorebook'))}">
                         <i class="fa-solid fa-folder-plus"></i>
                     </button>
+                    <button class="ne-btn ne-btn--soft ne-btn--icon" type="button" data-action="toggle-filters" aria-label="${escapeHtml(t('sidebar.btn.toggleFilters'))}" title="${escapeHtml(t('sidebar.btn.toggleFilters'))}">
+                        <i class="fa-solid fa-filter"></i>
+                    </button>
                     <button class="ne-btn ne-btn--soft ne-btn--icon ne-btn--danger" type="button" data-action="open-delete-panel" aria-label="${escapeHtml(t('sidebar.btn.deleteLorebook'))}" title="${escapeHtml(t('sidebar.btn.deleteLorebook'))}">
                         <i class="fa-solid fa-trash"></i>
                     </button>
@@ -176,14 +179,14 @@ function renderNoteSectionHeader(section, model) {
     const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
 
     return `
-        <header class="ne-sidebar__section-header ne-folder-row${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+        <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
             <div class="ne-folder-row__main" data-swipe-handle="true">
                 <h3 class="ne-sidebar__section-title">${escapeHtml(section.title)}</h3>
             </div>
-            <div class="ne-row-actions" aria-label="${escapeHtml(t('notes.folder.actions'))}">
+            ${renderActionGroup(t('notes.folder.actions'), `
                 ${renderIconActionButton('rename-folder-row', 'fa-pen', t('notes.folder.rename'), { folderId: section.folderId })}
                 ${renderIconActionButton('delete-folder-row', 'fa-trash', t('notes.folder.delete'), { folderId: section.folderId, tone: 'danger' })}
-            </div>
+            `)}
         </header>
     `;
 }
@@ -405,6 +408,7 @@ function renderLorebookSection(lorebook, model) {
     const rowKey = `lorebook:${lorebook.slotId}`;
     const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
     const caretIcon = lorebook.isExpanded ? 'fa-chevron-down' : 'fa-chevron-right';
+    const showEntryCounters = model.settingsState?.showLorebookEntryCounters !== false;
     const countLabel = Number.isFinite(Number(lorebook.entryCount)) && Number(lorebook.entryCount) > 0
         ? `${lorebook.entryCount}`
         : '';
@@ -417,7 +421,7 @@ function renderLorebookSection(lorebook, model) {
 
     return `
         <section class="ne-sidebar__section ne-lorebook-section${activeSlotClass}" data-lorebook-id="${escapeHtml(lorebook.id)}" data-slot-id="${escapeHtml(lorebook.slotId)}">
-            <header class="ne-sidebar__section-header ne-folder-row ne-lorebook-folder${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+            <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row ne-lorebook-folder${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
                 <button
                     class="ne-btn ne-btn--soft ne-btn--icon ne-lorebook-folder__caret"
                     type="button"
@@ -441,18 +445,17 @@ function renderLorebookSection(lorebook, model) {
                     <span class="ne-lorebook-folder__title-line">
                         <span class="ne-lorebook-folder__title">${escapeHtml(lorebook.name)}</span>
                         <span class="ne-lorebook-folder__badges">
-                            ${lorebook.isPrimary ? `<span class="ne-lorebook-badge">${escapeHtml(t('lorebook.badge.primary'))}</span>` : ''}
-                            ${countLabel ? `<span class="ne-lorebook-count">${escapeHtml(countLabel)}</span>` : ''}
+                            ${showEntryCounters && countLabel ? `<span class="ne-lorebook-count">${escapeHtml(countLabel)}</span>` : ''}
                         </span>
                     </span>
                 </button>
-                <div class="ne-row-actions" aria-label="${escapeHtml(t('lorebook.row.actions'))}">
+                ${renderActionGroup(t('lorebook.row.actions'), `
                     ${renderIconActionButton('refresh-active-lorebook', 'fa-rotate', t('lorebook.row.refresh'), { lorebookId: lorebook.id })}
                     ${renderIconActionButton('remove-workspace-lorebook', 'fa-xmark', t('lorebook.row.hide'), {
                         lorebookId: lorebook.id,
                         slotId: lorebook.slotId,
                     })}
-                </div>
+                `)}
             </header>
             ${replacePickerMarkup}
             ${bodyMarkup}
@@ -681,28 +684,32 @@ function renderLorePositionSection(section, lorebook, model) {
     const rowsMarkup = section.isCollapsed
         ? ''
         : section.entries.map((entry) => renderLoreEntryRow(entry, lorebook, model)).join('');
-    const caretIcon = section.isCollapsed ? 'fa-chevron-right' : 'fa-chevron-down';
+    const showEntryCounters = model.settingsState?.showLorebookEntryCounters !== false;
+    const rowKey = `lore-position:${lorebook.id}:${section.key}`;
+    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
 
     const activePositionClass = section.hasActiveEntry ? ' ne-lore-position-section--has-active' : '';
 
     return `
         <section class="ne-sidebar__section ne-lore-position-section${activePositionClass}" data-position-key="${escapeHtml(section.key)}">
-            <header class="ne-sidebar__section-header ne-lore-position-header">
-                <button class="ne-lore-position-header__button" type="button" data-action="toggle-lorebook-position" data-lorebook-id="${escapeHtml(lorebook.id)}" data-position-key="${escapeHtml(section.key)}">
+            <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row ne-lore-position-header ${escapeHtml(section.colorClass)}${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+                <button class="ne-lore-position-header__button" type="button" data-swipe-handle="true" data-action="toggle-lorebook-position" data-lorebook-id="${escapeHtml(lorebook.id)}" data-position-key="${escapeHtml(section.key)}">
                     <span class="ne-lore-position-header__title">
-                        <span class="ne-lore-position-chip ${escapeHtml(section.colorClass)}" aria-hidden="true"></span>
-                        <span>${escapeHtml(section.title)}</span>
+                        <span class="ne-lore-position-header__title-text ${escapeHtml(section.colorClass)}">${escapeHtml(section.title)}</span>
                     </span>
-                    <span class="ne-lore-position-header__meta">
-                        <span class="ne-lorebook-count">${escapeHtml(String(section.entries.length))}</span>
-                        <i class="fa-solid ${escapeHtml(caretIcon)}"></i>
-                    </span>
+                    ${showEntryCounters ? `
+                        <span class="ne-lore-position-header__meta">
+                            <span class="ne-lorebook-count">${escapeHtml(String(section.entries.length))}</span>
+                        </span>
+                    ` : ''}
                 </button>
-                <div class="ne-lore-position-header__actions" aria-label="${escapeHtml(t('lore.section.actions', { title: section.title }))}">
-                    ${renderIconActionButton('create-lore-entry-in-position', 'fa-plus', t('lore.section.createIn', { title: section.title }), {
+                <div class="ne-lore-position-header__actions">
+                    ${renderActionGroup(t('lore.section.actions', { title: section.title }), `
+                        ${renderIconActionButton('create-lore-entry-in-position', 'fa-plus', t('lore.section.createIn', { title: section.title }), {
                         lorebookId: lorebook.id,
                         positionKey: section.key,
                     })}
+                    `)}
                 </div>
             </header>
             ${section.isCollapsed ? '' : `<div class="ne-note-list">${rowsMarkup}</div>`}
@@ -922,6 +929,14 @@ function renderIconActionButton(action, icon, label, options = {}) {
         >
             <i class="fa-solid ${escapeHtml(icon)}"></i>
         </button>
+    `;
+}
+
+function renderActionGroup(label, buttonsMarkup) {
+    return `
+        <div class="ne-row-actions" aria-label="${escapeHtml(label)}">
+            ${buttonsMarkup}
+        </div>
     `;
 }
 

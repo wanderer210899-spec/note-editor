@@ -73,12 +73,15 @@ export function buildLorebookSidebarModel(lorebookState, sessionState, uiState =
 
     const tagSuggestions = selectLorebookKeywordSuggestions(settings, sessionState, uiState);
     const positionList = buildPositionList(settings.positionOrder, settings.positionMeta);
+    const filtersOpen = Boolean(sessionState.filtersOpen || sessionState.search);
+    const showTools = workspaceLorebooks.length > 0 && filtersOpen;
 
     return {
         source: 'lorebook',
         search: sessionState.search,
         searchPlaceholder: getLorebookSearchPlaceholder(expandedLorebooks),
-        showTools: workspaceLorebooks.length > 0,
+        showTools,
+        filtersOpen,
         workspaceStatus: settings.workspaceStatus,
         workspaceLorebooks: lorebooksWithSections,
         activeLorebookId,

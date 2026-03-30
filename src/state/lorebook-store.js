@@ -31,6 +31,7 @@ const AUTOSAVE_DELAY_MS = 2500;
 const SUMMARY_BUILD_THRESHOLD = 500;
 const SUMMARY_BUILD_CHUNK_SIZE = 150;
 const MAX_WARM_LOREBOOKS = 2;
+const CHARACTER_PRIMARY_SLOT_ID = 'character-primary-slot';
 
 const listeners = new Set();
 const sourceUi = getDocumentSourceUi(DOCUMENT_SOURCE_LOREBOOK);
@@ -672,17 +673,10 @@ async function ensureLorebookWorkspace({ forceRefresh = false } = {}) {
             runtime.primaryLorebookId,
             ...runtime.linkedLorebookIds,
         ]);
-        const priorityLorebookIds = uniqueStrings([
-            runtime.primaryLorebookId,
-            ...runtime.linkedLorebookIds,
-        ]);
-
+        runtime.workspaceSlots = syncCharacterPrimaryWorkspaceSlot(runtime.workspaceSlots, runtime.primaryLorebookId);
         runtime.workspaceSlots = buildVisibleWorkspaceSlots(runtime.workspaceSlots, {
             primaryLorebookId: runtime.primaryLorebookId,
             availableLorebookNames: runtime.availableLorebookNames,
-            priorityLorebookIds: characterChanged ? priorityLorebookIds : [],
-            injectMissingPriority: characterChanged,
-            expandPriority: characterChanged,
         });
         runtime.lorebookIds = getWorkspaceLorebookIds(runtime.workspaceSlots);
 
@@ -690,7 +684,7 @@ async function ensureLorebookWorkspace({ forceRefresh = false } = {}) {
         ensureBookRecords(runtime.lorebookIds);
 
         if (characterChanged) {
-            runtime.activeLorebookId = priorityLorebookIds[0] || runtime.lorebookIds[0] || null;
+            runtime.activeLorebookId = runtime.primaryLorebookId || runtime.lorebookIds[0] || null;
         } else if (!runtime.lorebookIds.includes(runtime.activeLorebookId)) {
             runtime.activeLorebookId = runtime.primaryLorebookId || runtime.lorebookIds[0] || null;
         }
@@ -1700,7 +1694,7 @@ function buildWorkspaceBookSidebarCacheKey() {
 
 function buildWorkspaceSlotCacheKey() {
     return runtime.workspaceSlots
-        .map((slot) => `${slot.slotId}:${slot.lorebookId}:${slot.isExpanded ? 1 : 0}`)
+        .map((slot) => `${slot.slotId}:${slot.lorebookId}:${slot.isExpanded ? 1 : 0}:${isCharacterWorkspaceSlot(slot) ? 'character' : 'workspace'}`)
         .join('|');
 }
 
@@ -1849,59 +1843,41 @@ function createWorkspaceSlotId() {
     return `slot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function createWorkspaceSlot(lorebookId, { slotId = createWorkspaceSlotId(), isExpanded = false } = {}) {
+function createWorkspaceSlot(lorebookId, {
+    slotId = createWorkspaceSlotId(),
+    isExpanded = false,
+    binding = 'workspace',
+} = {}) {
     return {
         slotId: String(slotId),
         lorebookId: String(lorebookId ?? '').trim(),
         isExpanded: Boolean(isExpanded),
+        binding: binding === 'character' ? 'character' : 'workspace',
     };
 }
 
 function buildVisibleWorkspaceSlots(workspaceSlots, {
     primaryLorebookId = null,
     availableLorebookNames = [],
-    priorityLorebookIds = [],
-    injectMissingPriority = false,
-    expandPriority = false,
 } = {}) {
     const availableSet = new Set(uniqueStrings(availableLorebookNames));
     const nextSlots = [];
     const seenLorebookIds = new Set();
-    const existingSlotsByLorebookId = new Map();
-    const pushSlot = (slot, { forceExpanded = false } = {}) => {
+    const pushSlot = (slot) => {
         const lorebookId = String(slot?.lorebookId ?? '').trim();
         if (!lorebookId || !availableSet.has(lorebookId) || seenLorebookIds.has(lorebookId)) {
             return;
         }
 
         nextSlots.push({
-            slotId: String(slot?.slotId ?? createWorkspaceSlotId()),
-            lorebookId,
-            isExpanded: forceExpanded ? true : Boolean(slot?.isExpanded),
+            ...createWorkspaceSlot(lorebookId, {
+                slotId: slot?.slotId ?? createWorkspaceSlotId(),
+                isExpanded: slot?.isExpanded,
+                binding: isCharacterWorkspaceSlot(slot) ? 'character' : 'workspace',
+            }),
         });
         seenLorebookIds.add(lorebookId);
     };
-
-    (Array.isArray(workspaceSlots) ? workspaceSlots : []).forEach((slot) => {
-        const lorebookId = String(slot?.lorebookId ?? '').trim();
-        if (lorebookId && !existingSlotsByLorebookId.has(lorebookId)) {
-            existingSlotsByLorebookId.set(lorebookId, slot);
-        }
-    });
-
-    uniqueStrings(priorityLorebookIds).forEach((lorebookId) => {
-        const existingSlot = existingSlotsByLorebookId.get(lorebookId);
-        if (existingSlot) {
-            pushSlot(existingSlot, { forceExpanded: expandPriority });
-            return;
-        }
-
-        if (injectMissingPriority) {
-            pushSlot(createWorkspaceSlot(lorebookId, { isExpanded: true }), {
-                forceExpanded: expandPriority,
-            });
-        }
-    });
 
     (Array.isArray(workspaceSlots) ? workspaceSlots : []).forEach((slot) => {
         pushSlot(slot);
@@ -1911,12 +1887,39 @@ function buildVisibleWorkspaceSlots(workspaceSlots, {
         const fallbackLorebookId = primaryLorebookId && availableSet.has(primaryLorebookId)
             ? primaryLorebookId
             : [...availableSet][0];
-        pushSlot(createWorkspaceSlot(fallbackLorebookId, { isExpanded: true }), {
-            forceExpanded: true,
-        });
+        pushSlot(createWorkspaceSlot(fallbackLorebookId, {
+            slotId: fallbackLorebookId === primaryLorebookId ? CHARACTER_PRIMARY_SLOT_ID : createWorkspaceSlotId(),
+            isExpanded: true,
+            binding: fallbackLorebookId === primaryLorebookId ? 'character' : 'workspace',
+        }));
     }
 
     return nextSlots;
+}
+
+function isCharacterWorkspaceSlot(slot) {
+    return slot?.binding === 'character' || String(slot?.slotId ?? '') === CHARACTER_PRIMARY_SLOT_ID;
+}
+
+function syncCharacterPrimaryWorkspaceSlot(workspaceSlots = [], primaryLorebookId = null) {
+    const manualSlots = (Array.isArray(workspaceSlots) ? workspaceSlots : [])
+        .filter((slot) => !isCharacterWorkspaceSlot(slot))
+        .filter((slot) => String(slot?.lorebookId ?? '').trim() !== String(primaryLorebookId ?? '').trim());
+    const existingCharacterSlot = (Array.isArray(workspaceSlots) ? workspaceSlots : [])
+        .find((slot) => isCharacterWorkspaceSlot(slot)) ?? null;
+    const trimmedPrimaryLorebookId = String(primaryLorebookId ?? '').trim();
+    if (!trimmedPrimaryLorebookId) {
+        return manualSlots;
+    }
+
+    return [
+        createWorkspaceSlot(trimmedPrimaryLorebookId, {
+            slotId: existingCharacterSlot?.slotId ?? CHARACTER_PRIMARY_SLOT_ID,
+            isExpanded: existingCharacterSlot?.isExpanded ?? true,
+            binding: 'character',
+        }),
+        ...manualSlots,
+    ];
 }
 
 function invalidateSnapshots() {
@@ -1999,6 +2002,7 @@ function readPersistedUiState() {
             .map((slot) => createWorkspaceSlot(slot?.lorebookId, {
                 slotId: slot?.slotId ?? slot?.id ?? createWorkspaceSlotId(),
                 isExpanded: slot?.isExpanded,
+                binding: slot?.binding,
             }))
             .filter((slot) => Boolean(slot.lorebookId)),
         lastActiveLorebookId: typeof stored?.lastActiveLorebookId === 'string'

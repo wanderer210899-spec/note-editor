@@ -609,12 +609,10 @@ function renderDocumentMeta(currentDocument = editorState.documentState?.current
     }
 
     const isLorebookDocument = normaliseDocumentSource(currentDocument?.source) === DOCUMENT_SOURCE_LOREBOOK;
-    if (!currentDocument || !isLorebookDocument) {
+    if (!currentDocument || !isLorebookDocument || isPreviewMode()) {
         editorState.documentMetaEl.innerHTML = '';
         editorState.documentMetaEl.hidden = true;
-        editorState.loreMetadataExpanded = false;
         editorState.loreOverflowOpen = false;
-        editorState.lastLoreMetaDocumentId = null;
         return;
     }
 
@@ -662,6 +660,10 @@ function syncEditorChromeLabels() {
     syncFormatButtonLabel('italic', t('editorShell.format.italic'));
     syncFormatButtonLabel('heading', t('editorShell.format.heading'));
     syncFormatButtonLabel('quote', t('editorShell.format.quote'));
+    syncFormatButtonLabel('unordered', t('editorShell.format.unordered'));
+    syncFormatButtonLabel('ordered', t('editorShell.format.ordered'));
+    syncFormatButtonLabel('indent', t('editorShell.format.indent'));
+    syncFormatButtonLabel('outdent', t('editorShell.format.outdent'));
     syncFormatButtonLabel('clear', t('editorShell.format.clear'), t('editorShell.format.clearShort'));
 
     const contentLabelEl = editorState.rootEl?.querySelector('label[for="ne-note-content-input"]');
@@ -748,6 +750,12 @@ function applyFormat(type) {
 }
 
 function handleContentKeyDown(event) {
+    if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        applyFormat(event.shiftKey ? 'outdent' : 'indent');
+        return;
+    }
+
     if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
         return;
     }

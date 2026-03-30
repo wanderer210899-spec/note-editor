@@ -14,10 +14,14 @@ import {
 import { getClampedBounds } from './panel-bounds.js';
 
 const CLASS_FULLSCREEN = 'ne-panel--fullscreen';
+const CLASS_INTERACTING = 'ne-panel--interacting';
 const RESIZE_EDGE_POINTER = 12;
-const RESIZE_EDGE_TOUCH = 24;
-const RESIZE_CORNER_POINTER = 28;
-const RESIZE_CORNER_TOUCH = 40;
+const RESIZE_EDGE_TOUCH = 30;
+const RESIZE_CORNER_POINTER = 34;
+const RESIZE_CORNER_TOUCH = 56;
+const RESIZE_MOVE_THRESHOLD = 6;
+
+let activeInteractionCount = 0;
 
 export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds } = {}) {
     const refs = state.toolbarRefs;
@@ -32,6 +36,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
     let startY = 0;
     let pendingDrag = false;
     let draggingFromTitle = false;
+    let interactionLocked = false;
 
     refs.root.addEventListener('pointerdown', (event) => {
         if (!event.isPrimary || event.button !== 0) {
@@ -72,7 +77,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
             return;
         }
 
-        const movedEnough = Math.hypot(event.clientX - startX, event.clientY - startY) >= 6;
+        const movedEnough = Math.hypot(event.clientX - startX, event.clientY - startY) >= RESIZE_MOVE_THRESHOLD;
         if (pendingDrag && !movedEnough) {
             return;
         }
@@ -86,6 +91,9 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
             if (draggingFromTitle && refs.titleButton) {
                 refs.titleButton.dataset.skipClick = 'true';
             }
+
+            beginPointerInteraction(state.panelEl, 'grabbing');
+            interactionLocked = true;
         }
 
         const rect = getPanelRect(state.panelEl);
@@ -128,6 +136,10 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
         dragPointerId = null;
         pendingDrag = false;
         draggingFromTitle = false;
+        if (interactionLocked) {
+            endPointerInteraction(state.panelEl);
+            interactionLocked = false;
+        }
     };
 
     refs.root.addEventListener('pointerup', endDrag);
@@ -145,9 +157,14 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     let startX = 0;
     let startY = 0;
     let startBounds = null;
+    let resizeHint = '';
 
     panel.addEventListener('pointerdown', (event) => {
         if (!event.isPrimary || event.button !== 0) {
+            return;
+        }
+
+        if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
             return;
         }
 
@@ -161,27 +178,21 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
             return;
         }
 
-        if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
-            onExitFullscreen?.();
-        }
-
-        const nextRect = getPanelRect(state.panelEl);
-        if (!nextRect) {
-            return;
-        }
-
         event.preventDefault();
+        event.stopPropagation();
         resizePointerId = event.pointerId;
         resizeMode = nextResizeMode;
         startX = event.clientX;
         startY = event.clientY;
         startBounds = {
-            width: nextRect.width,
-            height: nextRect.height,
-            left: nextRect.left,
-            top: nextRect.top,
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            top: rect.top,
         };
-        panel.style.cursor = getResizeCursor(resizeMode);
+        resizeHint = resizeMode;
+        setResizeHint(panel, resizeHint);
+        beginPointerInteraction(panel, getResizeCursor(resizeMode));
 
         try {
             panel.setPointerCapture?.(event.pointerId);
@@ -196,12 +207,15 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     panel.addEventListener('pointermove', (event) => {
         const rect = getPanelRect(state.panelEl);
         if (!rect) {
+            setResizeHint(panel, '');
             panel.style.cursor = '';
             return;
         }
 
         if (resizePointerId === null) {
-            panel.style.cursor = getResizeCursor(getResizeHitZone(rect, event, state.toolbarRefs?.root));
+            resizeHint = getResizeHitZone(rect, event, state.toolbarRefs?.root);
+            setResizeHint(panel, resizeHint);
+            panel.style.cursor = getResizeCursor(resizeHint);
             return;
         }
 
@@ -224,6 +238,7 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
         );
 
         setElementStyleProperty(state.panelEl, 'left', `${Math.round(nextBounds.left)}px`);
+        setElementStyleProperty(state.panelEl, 'top', `${Math.round(nextBounds.top)}px`);
         setElementStyleProperty(state.panelEl, 'height', `${Math.round(nextBounds.height)}px`);
         setElementStyleProperty(state.panelEl, 'width', `${Math.round(nextBounds.width)}px`);
         rememberWindowedBounds?.();
@@ -246,7 +261,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
         resizePointerId = null;
         resizeMode = '';
         startBounds = null;
+        resizeHint = '';
+        setResizeHint(panel, '');
         panel.style.cursor = '';
+        endPointerInteraction(panel);
         onResizeEnd?.();
     };
 
@@ -255,6 +273,8 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
             return;
         }
 
+        resizeHint = '';
+        setResizeHint(panel, '');
         panel.style.cursor = '';
     });
 
@@ -263,6 +283,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
 }
 
 function getResizeHitZone(rect, event, toolbarRoot) {
+    if (event.currentTarget instanceof Element && event.currentTarget.classList.contains(CLASS_FULLSCREEN)) {
+        return '';
+    }
+
     const touchLike = event.pointerType === 'touch' || isMobileViewport();
     const edgeSize = touchLike ? RESIZE_EDGE_TOUCH : RESIZE_EDGE_POINTER;
     const cornerSize = touchLike ? RESIZE_CORNER_TOUCH : RESIZE_CORNER_POINTER;
@@ -271,13 +295,40 @@ function getResizeHitZone(rect, event, toolbarRoot) {
     const withinRight = event.clientX >= rect.right - edgeSize && event.clientX <= rect.right + edgeSize;
     const withinBottom = event.clientY >= rect.bottom - edgeSize && event.clientY <= rect.bottom + edgeSize;
     const belowHeader = event.clientY >= toolbarBottom;
+    const leftDistance = Math.abs(event.clientX - rect.left);
+    const rightDistance = Math.abs(event.clientX - rect.right);
+    const bottomDistance = Math.abs(event.clientY - rect.bottom);
+    const bottomLeftDistance = Math.hypot(leftDistance, bottomDistance);
+    const bottomRightDistance = Math.hypot(rightDistance, bottomDistance);
 
-    if (withinBottom && event.clientX <= rect.left + cornerSize) {
+    if (
+        belowHeader
+        && event.clientX >= rect.left - edgeSize
+        && event.clientX <= rect.left + cornerSize
+        && event.clientY >= rect.bottom - cornerSize
+        && event.clientY <= rect.bottom + edgeSize
+        && bottomLeftDistance <= cornerSize
+    ) {
         return 'bottom-left';
     }
 
-    if (withinBottom && event.clientX >= rect.right - cornerSize) {
+    if (
+        belowHeader
+        && event.clientX >= rect.right - cornerSize
+        && event.clientX <= rect.right + edgeSize
+        && event.clientY >= rect.bottom - cornerSize
+        && event.clientY <= rect.bottom + edgeSize
+        && bottomRightDistance <= cornerSize
+    ) {
         return 'bottom-right';
+    }
+
+    if (withinBottom && belowHeader && withinLeft) {
+        return bottomDistance <= leftDistance ? 'bottom' : 'left';
+    }
+
+    if (withinBottom && belowHeader && withinRight) {
+        return bottomDistance <= rightDistance ? 'bottom' : 'right';
     }
 
     if (belowHeader && withinLeft) {
@@ -325,6 +376,7 @@ function getResizedBounds(mode, deltaX, deltaY, startBounds, toolbarRefs) {
     let width = startBounds.width;
     let height = startBounds.height;
     let left = startBounds.left;
+    let top = startBounds.top;
 
     if (mode === 'left' || mode === 'bottom-left') {
         width = Math.min(Math.max(startBounds.width - deltaX, minimum.width), maxWidth);
@@ -343,6 +395,71 @@ function getResizedBounds(mode, deltaX, deltaY, startBounds, toolbarRefs) {
         width,
         height,
         left,
-        top: startBounds.top,
+        top,
     }, toolbarRefs);
+}
+
+function setResizeHint(panel, zone = '') {
+    if (!panel) {
+        return;
+    }
+
+    if (!zone || isMobileViewport() || panel.classList.contains(CLASS_FULLSCREEN)) {
+        delete panel.dataset.resizeZone;
+        return;
+    }
+
+    panel.dataset.resizeZone = zone;
+}
+
+function beginPointerInteraction(panel, cursor = '') {
+    if (activeInteractionCount === 0) {
+        document.addEventListener('selectstart', preventInteractionSelection, true);
+        document.addEventListener('dragstart', preventInteractionSelection, true);
+    }
+
+    activeInteractionCount += 1;
+    panel?.classList.add(CLASS_INTERACTING);
+    if (panel) {
+        panel.style.touchAction = 'none';
+    }
+    document.documentElement.style.userSelect = 'none';
+    document.documentElement.style.webkitUserSelect = 'none';
+    document.documentElement.style.touchAction = 'none';
+    document.body.style.userSelect = 'none';
+    document.body.style.webkitUserSelect = 'none';
+    document.body.style.touchAction = 'none';
+    document.body.style.cursor = cursor;
+    document.documentElement.style.cursor = cursor;
+}
+
+function endPointerInteraction(panel) {
+    if (activeInteractionCount > 0) {
+        activeInteractionCount -= 1;
+    }
+
+    if (activeInteractionCount > 0) {
+        return;
+    }
+
+    panel?.classList.remove(CLASS_INTERACTING);
+    if (panel) {
+        panel.style.touchAction = '';
+    }
+    document.removeEventListener('selectstart', preventInteractionSelection, true);
+    document.removeEventListener('dragstart', preventInteractionSelection, true);
+    document.documentElement.style.userSelect = '';
+    document.documentElement.style.webkitUserSelect = '';
+    document.documentElement.style.touchAction = '';
+    document.documentElement.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.body.style.webkitUserSelect = '';
+    document.body.style.touchAction = '';
+    document.body.style.cursor = '';
+}
+
+function preventInteractionSelection(event) {
+    if (event.cancelable) {
+        event.preventDefault();
+    }
 }

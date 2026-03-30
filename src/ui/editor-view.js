@@ -247,7 +247,7 @@ function buildLoreMetadataSummary(primaryKeywords, secondaryKeywords, selectedLo
 
 function renderLorebookAdvancedSettings({ excludeRecursion = false, preventRecursion = false, probability = 100 } = {}) {
     return `
-        <div class="ne-lore-meta__overflow-panel" data-lore-overflow-panel="true">
+        <div class="ne-lore-meta__overflow-panel" data-lore-overflow-panel="true" data-positioning="true">
             <label class="ne-lore-meta__checkbox">
                 <input
                     type="checkbox"

@@ -169,13 +169,7 @@ export function handleSidebarAction(action, actionButton, {
             uiState.lorebookPickerMode = null;
             uiState.lorebookPickerSlotId = null;
             uiState.lorebookPickerSearch = '';
-            void (async () => {
-                const created = await createLorebookFile(lorebookName);
-                if (created) {
-                    await refreshLorebookWorkspace();
-                    void addManualLorebookToWorkspace(lorebookName);
-                }
-            })();
+            void createAndAddLorebookToWorkspace(lorebookName);
             return true;
         }
         case 'replace-workspace-lorebook-option': {
@@ -250,13 +244,7 @@ export function handleSidebarAction(action, actionButton, {
 
                 closeLoreEntryCreationDialogState(uiState);
                 renderSidebarController();
-                void (async () => {
-                    const created = await createLorebookFile(lorebookName);
-                    if (created) {
-                        await refreshLorebookWorkspace();
-                        void addManualLorebookToWorkspace(lorebookName);
-                    }
-                })();
+                void createAndAddLorebookToWorkspace(lorebookName);
                 return true;
             }
 
@@ -541,6 +529,25 @@ function confirmAndDelete(message, fn, resetState) {
         fn();
     }
     resetState();
+}
+
+async function createAndAddLorebookToWorkspace(lorebookName) {
+    const trimmedLorebookName = String(lorebookName ?? '').trim();
+    if (!trimmedLorebookName) {
+        return false;
+    }
+
+    const created = await createLorebookFile(trimmedLorebookName);
+    if (!created) {
+        return false;
+    }
+
+    const addedToWorkspace = await addManualLorebookToWorkspace(trimmedLorebookName);
+    if (!addedToWorkspace) {
+        await refreshLorebookWorkspace();
+    }
+
+    return addedToWorkspace;
 }
 
 function openLoreEntryCreationDialogState(uiState, {

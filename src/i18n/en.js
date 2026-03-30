@@ -19,6 +19,8 @@ export default {
     'settings.section.newEntry': 'New lorebook entry defaults',
     'settings.newEntry.excludeRecursion': 'Auto-check Non-recursable',
     'settings.newEntry.preventRecursion': 'Auto-check Prevent further recursion',
+    'settings.section.lorebookSidebar': 'Lorebook sidebar',
+    'settings.lorebook.showEntryCounters': 'Show lorebook entry counters',
 
     // ── Sidebar topbar buttons ───────────────────────────────────────────────
     'sidebar.btn.newNote': 'Create note',
@@ -217,6 +219,10 @@ export default {
     'editorShell.format.italic': 'Italic',
     'editorShell.format.heading': 'Heading',
     'editorShell.format.quote': 'Quote',
+    'editorShell.format.unordered': 'Bullet list',
+    'editorShell.format.ordered': 'Numbered list',
+    'editorShell.format.indent': 'Indent',
+    'editorShell.format.outdent': 'Outdent',
     'editorShell.format.clear': 'Clear formatting',
     'editorShell.format.clearShort': 'Clear',
     'editorShell.contentLabel': 'Document content',

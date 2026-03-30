@@ -30,7 +30,7 @@ export function renderDocumentPreview(documentModel, markdownConverter) {
     const trimmed = documentModel.content.trim();
     const termsMarkup = renderDocumentPreviewTerms(documentModel);
     const bodyMarkup = trimmed
-        ? sanitizePreviewHtml(markdownConverter.makeHtml(trimmed))
+        ? sanitizePreviewHtml(markdownConverter.makeHtml(normalizePreviewMarkdown(trimmed)))
         : '';
 
     return `${termsMarkup}${bodyMarkup}`;
@@ -80,10 +80,10 @@ function formatInlineSelection(value, selectionStart, selectionEnd, type) {
 
 function transformSelectedLines(value, selectionStart, selectionEnd, type) {
     const { start: lineStart, end: lineEnd } = getLineBoundsAt(value, selectionStart, selectionEnd);
-    const selectedBlock = value.slice(lineStart, lineEnd);
-    const nextBlock = selectedBlock
-        .split('\n')
-        .map((line) => transformLine(line, type))
+    const lines = value.slice(lineStart, lineEnd).split('\n');
+    const transformContext = buildLineTransformContext(lines, type);
+    const nextBlock = lines
+        .map((line, index) => transformLine(line, type, transformContext, index))
         .join('\n');
 
     return {
@@ -93,24 +93,123 @@ function transformSelectedLines(value, selectionStart, selectionEnd, type) {
     };
 }
 
-function transformLine(line, type) {
+function transformLine(line, type, context = {}, index = 0) {
     if (!line.trim()) {
         return line;
     }
 
+    const { indent, content } = splitLineIndent(line);
+
     switch (type) {
         case 'heading':
-            return line.replace(/^\s{0,3}(#{1,6}\s+)?/, '## ');
+            return `${indent}## ${stripBlockPrefix(content)}`;
         case 'quote':
-            return line.replace(/^\s{0,3}(>\s*)?/, '> ');
+            return `${indent}> ${stripBlockPrefix(content)}`;
+        case 'unordered':
+            return context.toggleUnorderedOff
+                ? `${indent}${content.replace(/^[-+*]\s+/, '')}`
+                : `${indent}- ${stripBlockPrefix(content)}`;
+        case 'ordered': {
+            if (context.toggleOrderedOff) {
+                return `${indent}${content.replace(/^\d+\.\s+/, '')}`;
+            }
+
+            const number = context.orderedNumbers?.get(index) ?? 1;
+            return `${indent}${number}. ${stripBlockPrefix(content)}`;
+        }
+        case 'indent':
+            return `    ${line}`;
+        case 'outdent':
+            return stripOneIndent(line);
         case 'clear':
-            return line
-                .replace(/^\s{0,3}(#{1,6}\s+|>\s*)/, '')
-                .replace(/^\*\*(.+)\*\*$/, '$1')
-                .replace(/^\*(.+)\*$/, '$1');
+            return clearLineFormatting(line);
         default:
             return line;
     }
+}
+
+function buildLineTransformContext(lines, type) {
+    const nonEmptyLines = lines.filter((line) => line.trim());
+    const orderedNumbers = new Map();
+    let nextNumber = 1;
+
+    lines.forEach((line, index) => {
+        if (!line.trim()) {
+            return;
+        }
+
+        orderedNumbers.set(index, nextNumber);
+        nextNumber += 1;
+    });
+
+    return {
+        orderedNumbers,
+        toggleUnorderedOff: type === 'unordered' && nonEmptyLines.length > 0 && nonEmptyLines.every(isUnorderedListLine),
+        toggleOrderedOff: type === 'ordered' && nonEmptyLines.length > 0 && nonEmptyLines.every(isOrderedListLine),
+    };
+}
+
+function splitLineIndent(line) {
+    const match = String(line ?? '').match(/^(\s*)(.*)$/);
+    return {
+        indent: match?.[1] ?? '',
+        content: match?.[2] ?? '',
+    };
+}
+
+function stripBlockPrefix(content) {
+    return String(content ?? '').replace(/^(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+\.\s+)/, '');
+}
+
+function stripOneIndent(line) {
+    return String(line ?? '').replace(/^(?:\t| {1,4})/, '');
+}
+
+function clearLineFormatting(line) {
+    let nextLine = String(line ?? '');
+
+    for (let index = 0; index < 8; index += 1) {
+        const withoutIndent = stripOneIndent(nextLine);
+        const withoutBlock = withoutIndent.replace(/^\s{0,3}(?:#{1,6}\s+|>\s*|[-+*]\s+|\d+\.\s+)/, '');
+        if (withoutBlock === nextLine) {
+            break;
+        }
+
+        nextLine = withoutBlock;
+    }
+
+    return clearInlineFormatting(nextLine);
+}
+
+function clearInlineFormatting(text) {
+    let nextText = String(text ?? '');
+
+    for (let index = 0; index < 4; index += 1) {
+        const stripped = nextText
+            .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+            .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+            .replace(/__([^_\n]+)__/g, '$1')
+            .replace(/\*([^*\n]+)\*/g, '$1')
+            .replace(/_([^_\n]+)_/g, '$1')
+            .replace(/~~([^~\n]+)~~/g, '$1')
+            .replace(/`([^`\n]+)`/g, '$1');
+        if (stripped === nextText) {
+            break;
+        }
+
+        nextText = stripped;
+    }
+
+    return nextText;
+}
+
+function isUnorderedListLine(line) {
+    return /^\s*[-+*]\s+/.test(String(line ?? ''));
+}
+
+function isOrderedListLine(line) {
+    return /^\s*\d+\.\s+/.test(String(line ?? ''));
 }
 
 // Returns the start and end character offsets of the line(s) spanning startPos..endPos.
@@ -125,6 +224,34 @@ function getLineBoundsAt(value, startPos, endPos = startPos) {
 function getLineRange(value, position) {
     const { start, end } = getLineBoundsAt(value, position);
     return { start, end, text: value.slice(start, end) };
+}
+
+function normalizePreviewMarkdown(markdown) {
+    const lines = String(markdown ?? '').split('\n');
+    const normalizedLines = [];
+
+    lines.forEach((line, index) => {
+        const previousLine = normalizedLines.length > 0 ? normalizedLines[normalizedLines.length - 1] : '';
+        const nextSourceLine = index + 1 < lines.length ? lines[index + 1] : '';
+        const isListLine = isMarkdownListLine(line);
+        const previousIsListLine = isMarkdownListLine(previousLine);
+
+        if (isListLine && previousLine.trim() && !previousIsListLine) {
+            normalizedLines.push('');
+        }
+
+        normalizedLines.push(line);
+
+        if (isListLine && nextSourceLine.trim() && !isMarkdownListLine(nextSourceLine)) {
+            normalizedLines.push('');
+        }
+    });
+
+    return normalizedLines.join('\n');
+}
+
+function isMarkdownListLine(line) {
+    return /^\s*(?:[-+*]|\d+\.)\s+/.test(String(line ?? ''));
 }
 
 function sanitizePreviewHtml(html) {
