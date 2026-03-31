@@ -20,6 +20,7 @@ const RESIZE_EDGE_TOUCH = 30;
 const RESIZE_CORNER_POINTER = 34;
 const RESIZE_CORNER_TOUCH = 56;
 const RESIZE_MOVE_THRESHOLD = 6;
+const WHEEL_RESIZE_SCALE_FACTOR = 1.08;
 
 let activeInteractionCount = 0;
 
@@ -280,6 +281,53 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
 
     panel.addEventListener('pointerup', endResize);
     panel.addEventListener('pointercancel', endResize);
+}
+
+export function initPanelWheelResize(state, { onResizeEnd, rememberWindowedBounds } = {}) {
+    const panel = state.panelEl;
+    if (!panel) {
+        return;
+    }
+
+    panel.addEventListener('wheel', (event) => {
+        if ((!event.ctrlKey && !event.metaKey) || isMobileViewport()) {
+            return;
+        }
+
+        if (panel.classList.contains(CLASS_FULLSCREEN) || !panel.classList.contains('ne-panel--open')) {
+            return;
+        }
+
+        if (
+            !event.cancelable
+            || (state.toolbarRefs?.titleInput && !state.toolbarRefs.titleInput.hidden)
+        ) {
+            return;
+        }
+
+        const rect = getPanelRect(panel);
+        if (!rect || !event.deltaY) {
+            return;
+        }
+
+        event.preventDefault();
+        const resizeScale = event.deltaY < 0
+            ? WHEEL_RESIZE_SCALE_FACTOR
+            : (1 / WHEEL_RESIZE_SCALE_FACTOR);
+        const nextBounds = getClampedBounds(state, {
+            width: rect.width * resizeScale,
+            height: rect.height * resizeScale,
+            left: rect.left,
+            top: rect.top,
+        });
+
+        setElementStyleProperty(panel, 'left', `${Math.round(nextBounds.left)}px`);
+        setElementStyleProperty(panel, 'top', `${Math.round(nextBounds.top)}px`);
+        setElementStyleProperty(panel, 'height', `${Math.round(nextBounds.height)}px`);
+        setElementStyleProperty(panel, 'width', `${Math.round(nextBounds.width)}px`);
+        rememberWindowedBounds?.();
+        onResizeEnd?.();
+    }, { passive: false });
 }
 
 function getResizeHitZone(rect, event, toolbarRoot) {

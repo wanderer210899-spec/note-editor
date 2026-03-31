@@ -12,6 +12,12 @@ import { reconcileNoteAnalysisCache } from './notes-selectors.js';
 import { getDocumentSourceUi, DOCUMENT_SOURCE_NOTE } from '../document-source.js';
 import { persistSettingsNow, readStoredSettings } from './notes-persistence.js';
 import { normalizeTagForSearch } from '../tag-utils.js';
+import {
+    buildTransferMatchKey,
+    normalizeImportedMarkdown,
+    normalizeTransferFolderPath,
+    normalizeTransferTitle,
+} from '../note-transfer.js';
 
 const AUTOSAVE_DELAY_MS = 450;
 
@@ -220,8 +226,9 @@ export function removeCurrentNoteTag(tag) {
     });
 }
 
-export function createFolder(name) {
-    const folder = makeFolder({ name: normaliseFolderName(name) });
+export function createFolder(name, parentFolderId = null) {
+    const resolvedParentId = parentFolderId && folderLookup.has(parentFolderId) ? parentFolderId : null;
+    const folder = makeFolder({ name: normaliseFolderName(name), parentFolderId: resolvedParentId });
     folderLookup.set(folder.id, folder);
 
     commit((draft) => {
@@ -254,25 +261,25 @@ export function deleteFolder(folderId) {
         return;
     }
 
+    const allFolderIds = collectDescendantFolderIds(folderId, settings.folders);
+
     const deleted = commit((draft) => {
         if (!folderLookup.has(folderId)) {
             return false;
         }
 
-        draft.folders = draft.folders.filter((folder) => folder.id !== folderId);
-        let changed = true;
+        draft.folders = draft.folders.filter((folder) => !allFolderIds.has(folder.id));
         draft.notes.forEach((note) => {
-            if (note.folderId === folderId) {
+            if (note.folderId && allFolderIds.has(note.folderId)) {
                 note.folderId = null;
                 note.updatedAt = new Date().toISOString();
-                changed = true;
             }
         });
 
-        return changed;
+        return true;
     });
     if (deleted) {
-        folderLookup.delete(folderId);
+        allFolderIds.forEach((id) => folderLookup.delete(id));
     }
 }
 
@@ -310,6 +317,117 @@ export function deleteNote(noteId) {
         }
         reconcileNoteAnalysisCache(settings.notes);
     }
+}
+
+export function importNotesFromTransfer(records, { overwriteExisting = true } = {}) {
+    const normalizedRecords = Array.isArray(records)
+        ? records
+            .map((record) => normalizeTransferRecord(record))
+            .filter((record) => record !== null)
+        : [];
+    const result = {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        foldersCreated: 0,
+    };
+
+    if (normalizedRecords.length === 0) {
+        return result;
+    }
+
+    const changed = commit((draft) => {
+        // Use full parent-chain paths so "FolderA/SubB" is distinct from a flat "SubB".
+        const folderIdByPath = buildFolderPathIndex(draft.folders);
+        const noteByMatchKey = new Map(
+            draft.notes.map((note) => {
+                const folderPath = note.folderId
+                    ? normalizeTransferFolderPath(getFolderFullPath(note.folderId))
+                    : '';
+                return [buildTransferMatchKey(folderPath, note.title), note];
+            }),
+        );
+        let didChange = false;
+
+        normalizedRecords.forEach((record) => {
+            let folderId = null;
+            if (record.folderPath) {
+                folderId = folderIdByPath.get(record.folderPath) ?? null;
+                if (!folderId) {
+                    // Create each path segment as a nested folder.
+                    const segments = record.folderPath.split('/').filter(Boolean);
+                    let currentPath = '';
+                    let parentId = null;
+                    for (const segment of segments) {
+                        const nextPath = currentPath ? `${currentPath}/${segment}` : segment;
+                        if (folderIdByPath.has(nextPath)) {
+                            parentId = folderIdByPath.get(nextPath);
+                        } else {
+                            const folder = makeFolder({ name: segment, parentFolderId: parentId });
+                            draft.folders.push(folder);
+                            folderLookup.set(folder.id, folder);
+                            folderIdByPath.set(nextPath, folder.id);
+                            parentId = folder.id;
+                            result.foldersCreated += 1;
+                            didChange = true;
+                        }
+                        currentPath = nextPath;
+                    }
+                    folderId = parentId;
+                }
+            }
+
+            const matchKey = buildTransferMatchKey(record.folderPath, record.title);
+            const existingNote = noteByMatchKey.get(matchKey) ?? null;
+
+            if (existingNote) {
+                if (!overwriteExisting) {
+                    result.skipped += 1;
+                    return;
+                }
+
+                if (
+                    existingNote.title === record.title
+                    && existingNote.content === record.content
+                    && existingNote.folderId === folderId
+                ) {
+                    result.skipped += 1;
+                    return;
+                }
+
+                existingNote.title = record.title;
+                existingNote.content = record.content;
+                existingNote.folderId = folderId;
+                existingNote.updatedAt = new Date().toISOString();
+                result.updated += 1;
+                didChange = true;
+                return;
+            }
+
+            const note = makeNote({
+                title: record.title,
+                content: record.content,
+                folderId,
+            });
+            draft.notes.unshift(note);
+            noteLookup.set(note.id, note);
+            noteByMatchKey.set(matchKey, note);
+            result.created += 1;
+            didChange = true;
+        });
+
+        if (didChange && !draft.currentNoteId) {
+            draft.currentNoteId = draft.notes[0]?.id ?? null;
+        }
+
+        return didChange;
+    });
+
+    if (changed) {
+        reconcileNoteAnalysisCache(settings.notes);
+    }
+
+    return result;
 }
 
 export function flushAutosave() {
@@ -445,6 +563,77 @@ function emitChange() {
 
 function buildLookup(items) {
     return new Map(items.map((item) => [item.id, item]));
+}
+
+// Returns the full slash-separated path for a folder by walking up folderLookup.
+function getFolderFullPath(folderId) {
+    const segments = [];
+    let id = folderId;
+    while (id) {
+        const folder = folderLookup.get(id);
+        if (!folder) break;
+        segments.unshift(folder.name);
+        id = folder.parentFolderId ?? null;
+    }
+    return segments.join('/');
+}
+
+// Builds a Map<normalizedFullPath, folderId> for all current folders.
+function buildFolderPathIndex(folders) {
+    const index = new Map();
+    folders.forEach((f) => {
+        const path = normalizeTransferFolderPath(getFolderFullPath(f.id));
+        if (path) index.set(path, f.id);
+    });
+    return index;
+}
+
+// Returns a Set containing folderId plus all its descendant folder IDs.
+export function collectFolderAndDescendantIds(folderId) {
+    return collectDescendantFolderIds(folderId, settings.folders);
+}
+
+// Returns a Set of note IDs for a folder and all its descendants.
+export function collectNoteIdsInFolder(folderId) {
+    const allFolderIds = collectDescendantFolderIds(folderId, settings.folders);
+    return new Set(
+        settings.notes
+            .filter((note) => note.folderId && allFolderIds.has(note.folderId))
+            .map((note) => note.id),
+    );
+}
+
+// Returns a Set of folderId + all descendant folder IDs (breadth-first).
+function collectDescendantFolderIds(rootId, folders) {
+    const result = new Set([rootId]);
+    let frontier = [rootId];
+    while (frontier.length > 0) {
+        const next = [];
+        folders.forEach((folder) => {
+            if (frontier.includes(folder.parentFolderId) && !result.has(folder.id)) {
+                result.add(folder.id);
+                next.push(folder.id);
+            }
+        });
+        frontier = next;
+    }
+    return result;
+}
+
+function normalizeTransferRecord(record) {
+    if (!record || typeof record !== 'object') {
+        return null;
+    }
+
+    const title = normalizeTransferTitle(record.title);
+    const content = normalizeImportedMarkdown(record.content);
+    const folderPath = normalizeTransferFolderPath(record.folderPath);
+
+    return {
+        title,
+        content,
+        folderPath,
+    };
 }
 
 // Rebuilds tagIndex from scratch. Called once on module load and can be used for recovery.

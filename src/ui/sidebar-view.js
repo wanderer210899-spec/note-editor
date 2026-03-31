@@ -7,13 +7,14 @@ import { t } from '../i18n/index.js';
 import { escapeHtml } from '../util.js';
 import { renderSettingsPanel } from './settings-view.js';
 
-export function renderSidebarShell({ source = 'note' } = {}) {
+export function renderSidebarShell({ source = 'note', noteBulkSelectMode = false } = {}) {
     const normalizedSource = normaliseDocumentSource(source);
     const isNoteSource = normalizedSource === 'note';
     const createLabel = isNoteSource ? t('sidebar.btn.newNote') : t('sidebar.btn.newLoreEntry');
     const closeBtnLabel = isNoteSource ? t('sidebar.btn.closeNotes') : t('sidebar.btn.closeLorebook');
     const createIcon = isNoteSource ? 'fa-note-sticky' : 'fa-book';
     const settingsLabel = t('sidebar.btn.settings');
+    const selectActiveClass = noteBulkSelectMode ? ' ne-btn--active' : '';
 
     return `
         <div class="ne-sidebar__topbar">
@@ -27,6 +28,9 @@ export function renderSidebarShell({ source = 'note' } = {}) {
                     </button>
                     <button class="ne-btn ne-btn--soft ne-btn--icon" type="button" data-action="toggle-filters" aria-label="${escapeHtml(t('sidebar.btn.toggleFilters'))}" title="${escapeHtml(t('sidebar.btn.toggleFilters'))}">
                         <i class="fa-solid fa-filter"></i>
+                    </button>
+                    <button class="ne-btn ne-btn--soft ne-btn--icon${selectActiveClass}" type="button" data-action="toggle-note-bulk-select-mode" aria-label="${escapeHtml(t('notes.bulk.select'))}" title="${escapeHtml(t('notes.bulk.select'))}">
+                        <i class="fa-solid fa-list-check"></i>
                     </button>
                 ` : `
                     <button class="ne-btn ne-btn--soft ne-btn--icon" type="button" data-action="refresh-lorebook-workspace" aria-label="${escapeHtml(t('sidebar.btn.refreshLorebooks'))}" title="${escapeHtml(t('sidebar.btn.refreshLorebooks'))}">
@@ -124,7 +128,7 @@ export function renderSidebarFilters(model) {
 
 export function renderSidebarBody(model, source = 'note') {
     if (model.settingsPanelOpen) {
-        return renderSettingsPanel(model.settingsState);
+        return renderSettingsPanel(model.settingsState, model.noteTransferModel);
     }
 
     const normalizedSource = normaliseDocumentSource(source);
@@ -148,20 +152,46 @@ function renderNotesSidebarBody(model, source) {
             </div>
         `;
 
-    return sectionsMarkup || emptyMarkup;
+    const body = sectionsMarkup || emptyMarkup;
+
+    if (!model.noteBulkSelectMode) {
+        return body;
+    }
+
+    const totalSelected = (model.bulkSelectedNoteIds?.size ?? 0) + (model.bulkSelectedFolderIds?.size ?? 0);
+    const deleteLabel = totalSelected === 0
+        ? t('notes.bulk.delete.none')
+        : totalSelected === 1
+            ? t('notes.bulk.delete.one')
+            : t('notes.bulk.delete.many', { count: totalSelected });
+
+    return `
+        ${body}
+        <div class="ne-bulk-delete-bar">
+            <button class="ne-btn ne-btn--soft" type="button" data-action="toggle-note-bulk-select-mode">
+                ${escapeHtml(t('notes.bulk.cancel'))}
+            </button>
+            <button class="ne-btn ne-btn--danger" type="button" data-action="bulk-delete-notes-and-folders"${totalSelected === 0 ? ' disabled' : ''}>
+                ${escapeHtml(deleteLabel)}
+            </button>
+        </div>
+    `;
 }
 
 function renderNoteSection(section, model, source) {
+    const subfoldersMarkup = (section.subfolders ?? [])
+        .map((sub) => renderNoteSection(sub, model, source))
+        .join('');
     const notesMarkup = section.notes.length
         ? section.notes.map((note) => renderNoteRow(note, section, model, source)).join('')
-        : `<p class="ne-sidebar__section-empty">${escapeHtml(t('notes.section.empty'))}</p>`;
+        : (subfoldersMarkup ? '' : `<p class="ne-sidebar__section-empty">${escapeHtml(t('notes.section.empty'))}</p>`);
+
+    const depthStyle = section.depth > 0 ? ` style="--ne-section-depth:${section.depth}"` : '';
 
     return `
-        <section class="ne-sidebar__section" data-folder-id="${escapeHtml(section.folderId ?? '')}">
+        <section class="ne-sidebar__section" data-folder-id="${escapeHtml(section.folderId ?? '')}"${depthStyle}>
             ${renderNoteSectionHeader(section, model)}
-            <div class="ne-note-list">
-                ${notesMarkup}
-            </div>
+            ${section.isCollapsed ? '' : `<div class="ne-note-list">${subfoldersMarkup}${notesMarkup}</div>`}
         </section>
     `;
 }
@@ -177,13 +207,29 @@ function renderNoteSectionHeader(section, model) {
 
     const rowKey = `folder:${section.folderId}`;
     const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const expandedClass = section.isCollapsed ? '' : ' ne-folder-row--expanded';
+
+    if (model.noteBulkSelectMode) {
+        const isChecked = model.bulkSelectedFolderIds?.has(section.folderId) ?? false;
+        return `
+            <header class="ne-sidebar__section-header ne-folder-row ne-bulk-row${expandedClass}" data-action="toggle-bulk-folder-select" data-folder-id="${escapeHtml(section.folderId)}" role="checkbox" aria-checked="${isChecked ? 'true' : 'false'}">
+                <i class="fa-${isChecked ? 'solid fa-square-check' : 'regular fa-square'} ne-bulk-row__check"></i>
+                <h3 class="ne-sidebar__section-title">${escapeHtml(section.title)}</h3>
+            </header>
+        `;
+    }
 
     return `
-        <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
-            <div class="ne-folder-row__main" data-swipe-handle="true">
+        <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row${revealedClass}${expandedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+            <div class="ne-folder-row__main"
+                    data-swipe-handle="true"
+                    data-action="toggle-note-folder-collapse"
+                    data-folder-id="${escapeHtml(section.folderId)}">
                 <h3 class="ne-sidebar__section-title">${escapeHtml(section.title)}</h3>
             </div>
             ${renderActionGroup(t('notes.folder.actions'), `
+                ${renderIconActionButton('new-note-in-folder', 'fa-note-sticky', t('notes.folder.newNote'), { folderId: section.folderId })}
+                ${renderIconActionButton('new-subfolder', 'fa-folder-plus', t('notes.folder.newSub'), { folderId: section.folderId })}
                 ${renderIconActionButton('rename-folder-row', 'fa-pen', t('notes.folder.rename'), { folderId: section.folderId })}
                 ${renderIconActionButton('delete-folder-row', 'fa-trash', t('notes.folder.delete'), { folderId: section.folderId, tone: 'danger' })}
             `)}
@@ -194,9 +240,23 @@ function renderNoteSectionHeader(section, model) {
 function renderNoteRow(note, section, model, source) {
     const rowKey = `note:${note.id}`;
     const activeClass = note.id === model.currentNoteId ? ' ne-note-row--active' : '';
+    const excerpt = getNoteExcerpt(note.content);
+
+    if (model.noteBulkSelectMode) {
+        const isChecked = model.bulkSelectedNoteIds?.has(note.id) ?? false;
+        return `
+            <article class="ne-note-row ne-bulk-row${activeClass}" data-action="toggle-bulk-note-select" data-note-id="${escapeHtml(note.id)}" role="checkbox" aria-checked="${isChecked ? 'true' : 'false'}">
+                <i class="fa-${isChecked ? 'solid fa-square-check' : 'regular fa-square'} ne-bulk-row__check"></i>
+                <span class="ne-note-row__title-line">
+                    <span class="ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
+                    ${note.pinned ? `<span class="ne-note-row__pin" aria-label="${escapeHtml(t('notes.row.pinned'))}" title="${escapeHtml(t('notes.row.pinned'))}"><i class="fa-solid fa-thumbtack"></i></span>` : ''}
+                </span>
+            </article>
+        `;
+    }
+
     const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
     const moveMenuOpen = note.id === model.moveMenuNoteId;
-    const excerpt = getNoteExcerpt(note.content);
 
     return `
         <article class="ne-note-row${activeClass}${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
@@ -864,8 +924,8 @@ function renderLorebookPickerPanel(picker, lorebook = null) {
 
 function renderMoveMenu(noteId, currentFolderId, folderOptions) {
     const buttons = [
-        renderMoveButton(noteId, t('notes.section.unfiled'), '', currentFolderId === null),
-        ...folderOptions.map((folder) => renderMoveButton(noteId, folder.name, folder.id, folder.id === currentFolderId)),
+        renderMoveButton(noteId, t('notes.section.unfiled'), '', currentFolderId === null, 0),
+        ...folderOptions.map((folder) => renderMoveButton(noteId, folder.name, folder.id, folder.id === currentFolderId, folder.depth)),
     ].join('');
 
     return `
@@ -876,14 +936,15 @@ function renderMoveMenu(noteId, currentFolderId, folderOptions) {
     `;
 }
 
-function renderMoveButton(noteId, label, folderId, active) {
+function renderMoveButton(noteId, label, folderId, active, depth = 0) {
+    const depthStyle = depth > 0 ? ` style="padding-left:calc(${depth} * 1rem + 0.6rem)"` : '';
     return `
         <button
             class="ne-note-row__move-option${active ? ' ne-note-row__move-option--active' : ''}"
             type="button"
             data-action="move-note-row"
             data-note-id="${escapeHtml(noteId)}"
-            data-folder-id="${escapeHtml(folderId)}"
+            data-folder-id="${escapeHtml(folderId)}"${depthStyle}
         >
             ${escapeHtml(label)}
         </button>

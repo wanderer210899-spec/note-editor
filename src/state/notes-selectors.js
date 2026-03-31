@@ -16,7 +16,10 @@ export function buildSidebarModel(notesState, sessionState, uiState = {}) {
 
     return {
         currentNoteId: notesState.settings.currentNoteId,
-        sections: selectSidebarSections(notesState, sessionState),
+        sections: selectSidebarSections(notesState, sessionState, uiState.collapsedFolderIds ?? new Set()),
+        noteBulkSelectMode: Boolean(uiState.noteBulkSelectMode),
+        bulkSelectedNoteIds: uiState.bulkSelectedNoteIds ?? new Set(),
+        bulkSelectedFolderIds: uiState.bulkSelectedFolderIds ?? new Set(),
         search: sessionState.search,
         activeTag: sessionState.tag,
         shouldShowSearch,
@@ -24,10 +27,7 @@ export function buildSidebarModel(notesState, sessionState, uiState = {}) {
         filtersOpen: Boolean(sessionState.filtersOpen || sessionState.search || sessionState.tag),
         moveMenuNoteId: uiState.moveMenuNoteId ?? null,
         revealedRowKey: uiState.revealedRowKey ?? '',
-        folderOptions: notesState.settings.folders.map((folder) => ({
-            id: folder.id,
-            name: folder.name,
-        })),
+        folderOptions: buildFolderOptions(notesState.settings.folders),
         hasAnyNotes: notesState.settings.notes.length > 0,
         tagSuggestions,
         activeTagSuggestionIndex: clampSuggestionIndex(uiState.searchSuggestionIndex, tagSuggestions.length),
@@ -52,11 +52,11 @@ export function selectVisibleNotes(notesState, sessionState) {
     return notes;
 }
 
-export function selectSidebarSections(notesState, sessionState) {
+export function selectSidebarSections(notesState, sessionState, collapsedFolderIds = new Set()) {
     return buildSections(
         notesState.settings.folders,
         selectVisibleNotes(notesState, sessionState),
-        { hideEmptySections: isFilteredSidebarView(sessionState) },
+        { hideEmptySections: isFilteredSidebarView(sessionState), collapsedFolderIds },
     );
 }
 
@@ -85,19 +85,22 @@ export function selectSidebarTagSuggestions(notesState, sessionState, uiState = 
     return suggestions;
 }
 
-function buildSectionCacheKey(notes, folders, hideEmptySections) {
+function buildSectionCacheKey(notes, folders, hideEmptySections, collapsedFolderIds) {
     const notesPart = notes.map((n) => `${n.id}:${n.pinned ? '1' : '0'}:${n.updatedAt}:${n.folderId ?? ''}`).join('|');
-    const foldersPart = folders.map((f) => f.id).join(',');
-    return `${notesPart}::${foldersPart}::${hideEmptySections ? '1' : '0'}`;
+    const foldersPart = folders.map((f) => `${f.id}:${f.parentFolderId ?? ''}`).join(',');
+    const collapsedPart = [...collapsedFolderIds].sort().join(',');
+    return `${notesPart}::${foldersPart}::${hideEmptySections ? '1' : '0'}::${collapsedPart}`;
 }
 
 function buildSections(folders, notes, options = {}) {
     const hideEmptySections = Boolean(options.hideEmptySections);
-    const cacheKey = buildSectionCacheKey(notes, folders, hideEmptySections);
+    const collapsedFolderIds = options.collapsedFolderIds ?? new Set();
+    const cacheKey = buildSectionCacheKey(notes, folders, hideEmptySections, collapsedFolderIds);
     if (sectionSortCache.key === cacheKey) {
         return sectionSortCache.sections;
     }
 
+    // Build a flat map of section objects (without subfolders yet).
     const sectionMap = new Map(
         folders.map((folder) => [
             folder.id,
@@ -105,8 +108,11 @@ function buildSections(folders, notes, options = {}) {
                 id: folder.id,
                 title: folder.name,
                 notes: [],
+                subfolders: [],
                 folderId: folder.id,
+                parentFolderId: folder.parentFolderId ?? null,
                 isUnfiled: false,
+                depth: 0,
             },
         ]),
     );
@@ -114,25 +120,65 @@ function buildSections(folders, notes, options = {}) {
         id: 'unfiled',
         title: 'Unfiled',
         notes: [],
+        subfolders: [],
         folderId: null,
+        parentFolderId: null,
         isUnfiled: true,
+        depth: 0,
     };
 
+    // Distribute notes — orphaned folder references fall through to unfiled.
     notes.forEach((note) => {
-        const section = note.folderId ? sectionMap.get(note.folderId) : unfiledSection;
+        const section = note.folderId ? sectionMap.get(note.folderId) : null;
         (section ?? unfiledSection).notes.push(note);
     });
 
-    const folderSections = [...sectionMap.values()]
-        .map((section) => ({
-            ...section,
-            notes: [...section.notes].sort(sortPinnedThenRecent),
-        }))
-        .filter((section) => !hideEmptySections || section.notes.length > 0);
+    // Build the tree: attach each folder as a child of its parent.
+    const rootSections = [];
+    sectionMap.forEach((section) => {
+        if (section.parentFolderId && sectionMap.has(section.parentFolderId)) {
+            sectionMap.get(section.parentFolderId).subfolders.push(section);
+        } else {
+            rootSections.push(section);
+        }
+    });
+
+    // Recursively sort, assign depth, sort notes, and apply collapsed state.
+    function finalizeSection(section, depth) {
+        section.depth = depth;
+        section.isCollapsed = collapsedFolderIds.has(section.folderId);
+        section.notes = [...section.notes].sort(sortPinnedThenRecent);
+        section.subfolders = section.subfolders
+            .sort((a, b) => {
+                const fa = folders.find((f) => f.id === a.folderId);
+                const fb = folders.find((f) => f.id === b.folderId);
+                return (fa?.order ?? 0) - (fb?.order ?? 0);
+            })
+            .map((sub) => finalizeSection(sub, depth + 1));
+        return section;
+    }
+
+    const finalRootSections = rootSections
+        .sort((a, b) => {
+            const fa = folders.find((f) => f.id === a.folderId);
+            const fb = folders.find((f) => f.id === b.folderId);
+            return (fa?.order ?? 0) - (fb?.order ?? 0);
+        })
+        .map((section) => finalizeSection(section, 0));
+
+    // Filter empty sections at each level if in filtered view.
+    function hasVisibleContent(section) {
+        return section.notes.length > 0 || section.subfolders.some(hasVisibleContent);
+    }
+
+    const visibleRootSections = hideEmptySections
+        ? finalRootSections.filter(hasVisibleContent)
+        : finalRootSections;
+
     unfiledSection.notes.sort(sortPinnedThenRecent);
 
     const sections = [
-        ...folderSections,
+        ...visibleRootSections,
         ...((!hideEmptySections || unfiledSection.notes.length > 0) ? [unfiledSection] : []),
     ];
     sectionSortCache = { key: cacheKey, sections };
@@ -257,4 +303,33 @@ function areStringArraysEqual(left, right) {
     }
 
     return left.every((value, index) => value === right[index]);
+}
+
+// Produces a depth-ordered flat list of folder options for the move-note menu.
+// Walks the folder tree in DFS order so each parent precedes its children.
+// Returns [{ id, name, depth }, ...] — root folders have depth 0.
+export function buildFolderOptions(folders) {
+    const childrenOf = new Map();
+    folders.forEach((folder) => {
+        const parentKey = folder.parentFolderId ?? null;
+        if (!childrenOf.has(parentKey)) {
+            childrenOf.set(parentKey, []);
+        }
+        childrenOf.get(parentKey).push(folder);
+    });
+
+    childrenOf.forEach((children) => {
+        children.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    });
+
+    const result = [];
+    function walk(parentId, depth) {
+        const children = childrenOf.get(parentId) ?? [];
+        children.forEach((folder) => {
+            result.push({ id: folder.id, name: folder.name, depth });
+            walk(folder.id, depth + 1);
+        });
+    }
+    walk(null, 0);
+    return result;
 }

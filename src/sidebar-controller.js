@@ -3,6 +3,7 @@
 
 import { normaliseDocumentSource } from './document-source.js';
 import { getNotesState } from './state/notes-store.js';
+import { buildNoteTransferSettingsModel, buildNoteTransferSummary } from './note-transfer.js';
 import { buildLorebookSidebarModel } from './state/lorebook-selectors.js';
 import { buildSidebarModel } from './state/notes-selectors.js';
 import { getLorebookState } from './state/lorebook-store.js';
@@ -41,12 +42,15 @@ import {
 import { isMobileViewport } from './util.js';
 import {
     getSettingsState,
+    previewSettingsPanelFontScale,
+    setSettingsPanelFontScale,
     subscribeSettings,
     setSettingsLanguage,
     setSettingsDefaultSource,
     setSettingsNewEntryExcludeRecursion,
     setSettingsNewEntryPreventRecursion,
     setSettingsShowLorebookEntryCounters,
+    setSettingsTransferOverwriteExisting,
 } from './state/settings-store.js';
 
 let rootEl = null;
@@ -112,10 +116,23 @@ export function renderSidebarController() {
     const rawModel = activeSource === 'note'
         ? buildSidebarModel(getNotesState(), sessionState, uiState)
         : buildLorebookSidebarModel(getLorebookState(), sessionState, uiState);
+    const noteTransferModel = uiState.settingsPanelOpen
+        ? (() => {
+            const notesSettings = getNotesState().settings;
+            const transferModel = uiState.noteExportPickerOpen
+                ? buildNoteTransferSettingsModel(notesSettings, uiState.noteTransferSelection)
+                : buildNoteTransferSummary(notesSettings, uiState.noteTransferSelection);
+            return {
+                ...transferModel,
+                exportPickerOpen: uiState.noteExportPickerOpen,
+            };
+        })()
+        : null;
     const model = {
         ...rawModel,
         settingsPanelOpen: uiState.settingsPanelOpen,
         settingsState: getSettingsState(),
+        noteTransferModel,
     };
     currentSidebarModel = model;
 
@@ -125,6 +142,11 @@ export function renderSidebarController() {
     if (renderedSidebarBodyMarkup !== bodyMarkup) {
         sidebarBodyEl.innerHTML = bodyMarkup;
         renderedSidebarBodyMarkup = bodyMarkup;
+    }
+
+    const selectBtn = sidebarRootEl?.querySelector('[data-action="toggle-note-bulk-select-mode"]');
+    if (selectBtn) {
+        selectBtn.classList.toggle('ne-btn--active', Boolean(uiState.noteBulkSelectMode));
     }
 
     const restoredBodyInputFocus = restorePendingSidebarBodyInputFocus();
@@ -396,6 +418,12 @@ function handleSidebarPointerUp(event) {
 }
 
 function handleSidebarInput(event) {
+    const settingsPreviewField = event.target?.dataset?.settingsPreviewField;
+    if (settingsPreviewField) {
+        handleSettingsPreviewInput(settingsPreviewField, event.target);
+        return;
+    }
+
     if (event.target?.dataset?.lorebookPickerSearch === 'true') {
         if (isSidebarInputComposing(uiState, event.target)) {
             uiState.lorebookPickerSearch = event.target.value;
@@ -479,6 +507,11 @@ function handleSidebarChange(event) {
 }
 
 function handleSettingsFieldChange(field, target) {
+    if (field === 'panelFontScale') {
+        setSettingsPanelFontScale(target.value);
+        syncSettingsPreviewValue(field, target.value);
+        return;
+    }
     if (field === 'language') {
         setSettingsLanguage(target.value);
         return;
@@ -497,10 +530,30 @@ function handleSettingsFieldChange(field, target) {
     }
     if (field === 'showLorebookEntryCounters') {
         setSettingsShowLorebookEntryCounters(target.checked);
+        return;
+    }
+    if (field === 'transferOverwriteExisting') {
+        setSettingsTransferOverwriteExisting(target.checked);
     }
 }
 
+function handleSettingsPreviewInput(field, target) {
+    if (field !== 'panelFontScale') {
+        return;
+    }
+
+    previewSettingsPanelFontScale(target.value);
+    syncSettingsPreviewValue(field, target.value);
+}
+
 function handleSidebarBlur(event) {
+    const settingsPreviewField = event.target?.dataset?.settingsPreviewField;
+    if (settingsPreviewField === 'panelFontScale') {
+        setSettingsPanelFontScale(event.target.value);
+        syncSettingsPreviewValue(settingsPreviewField, event.target.value);
+        return;
+    }
+
     const field = event.target.closest('[data-field-action]');
     if (!field) {
         return;
@@ -663,7 +716,16 @@ function createDefaultSidebarUiState() {
         bulkSelectedEntryKeys: new Set(),
         bulkDeleteLorebookSearch: '',
         bulkSelectedLorebookNames: new Set(),
+        collapsedFolderIds: new Set(),
+        noteBulkSelectMode: false,
+        bulkSelectedNoteIds: new Set(),
+        bulkSelectedFolderIds: new Set(),
         settingsPanelOpen: false,
+        noteExportPickerOpen: false,
+        noteTransferSelection: {
+            selectedFolderIds: new Set(),
+            selectedNoteIds: new Set(),
+        },
     };
 }
 
@@ -871,4 +933,18 @@ function clearTouchSwipeState(event = null) {
     }
 
     touchSwipeState = null;
+}
+
+function syncSettingsPreviewValue(field, value) {
+    if (field !== 'panelFontScale') {
+        return;
+    }
+
+    const labelEl = sidebarRootEl?.querySelector('[data-settings-preview-value="panelFontScale"]');
+    if (!labelEl) {
+        return;
+    }
+
+    const percent = Math.round(Number(value) * 100);
+    labelEl.textContent = `${percent}%`;
 }

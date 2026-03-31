@@ -17,13 +17,13 @@ import {
     keepPanelReachable,
     rememberWindowedBounds,
 } from './panel-bounds.js';
-import { initPanelDrag, initPanelResize } from './panel-pointer.js';
+import { initPanelDrag, initPanelResize, initPanelWheelResize } from './panel-pointer.js';
 import { t } from './i18n/index.js';
 import { refreshLorebookWorkspace } from './state/lorebook-store.js';
-import { getSettingsState, subscribeSettings } from './state/settings-store.js';
+import { getSettingsState, subscribePanelFontScale, subscribeSettings } from './state/settings-store.js';
 import { getSessionState, setActiveSource, subscribeSession } from './state/session-store.js';
 import { mountToolbar, renderToolbarOverflowMenu } from './ui/toolbar-view.js';
-import { setPanelBounds } from './util.js';
+import { setElementStyleProperty, setPanelBounds } from './util.js';
 
 const CLASS_OPEN = 'ne-panel--open';
 const CLASS_FULLSCREEN = 'ne-panel--fullscreen';
@@ -49,8 +49,10 @@ const panelState = {
     },
     unsubscribeSession: null,
     unsubscribeSettings: null,
+    unsubscribePanelFontScale: null,
     toolbarLayoutFrame: 0,
     toolbarLayoutObserver: null,
+    lastSettingsState: null,
 };
 
 let viewportEventsBound = false;
@@ -174,10 +176,24 @@ function bindSettingsEvents() {
         return;
     }
 
-    panelState.unsubscribeSettings = subscribeSettings(() => {
-        syncToolbarSource(getSessionState(), { forceRemount: true });
-        updateToolbarState();
-        refreshEditorView();
+    panelState.unsubscribeSettings = subscribeSettings((nextSettings) => {
+        const previousSettings = panelState.lastSettingsState;
+        panelState.lastSettingsState = nextSettings;
+
+        if (!previousSettings) {
+            return;
+        }
+
+        if (previousSettings.language !== nextSettings.language) {
+            syncToolbarSource(getSessionState(), { forceRemount: true });
+            updateToolbarState();
+            refreshEditorView();
+        }
+    });
+
+    panelState.unsubscribePanelFontScale = subscribePanelFontScale(({ value }) => {
+        applyPanelFontScale(value);
+        scheduleToolbarLayout();
     });
 }
 
@@ -218,10 +234,22 @@ function bindToolbarEvents() {
         onExitFullscreen: exitFullscreen,
         rememberWindowedBounds: rememberCurrentWindowBounds,
     });
+    initPanelWheelResize(panelState, {
+        onResizeEnd: handleResizeEnd,
+        rememberWindowedBounds: rememberCurrentWindowBounds,
+    });
 }
 
 function rememberCurrentWindowBounds() {
     rememberWindowedBounds(panelState, STORAGE_WINDOW_BOUNDS);
+}
+
+function applyPanelFontScale(value) {
+    if (!panelState.panelEl) {
+        return;
+    }
+
+    setElementStyleProperty(panelState.panelEl, '--ne-font-scale', String(value), '');
 }
 
 function handleResizeEnd() {

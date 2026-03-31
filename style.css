@@ -12,6 +12,7 @@
     --ne-control-surface: color-mix(in srgb, var(--ne-surface-solid) 97%, black 3%);
     --ne-control-surface-strong: color-mix(in srgb, var(--ne-surface-solid) 94%, black 6%);
     --ne-text: var(--SmartThemeBodyColor);
+    --ne-label: color-mix(in srgb, var(--ne-text) 82%, transparent);
     --ne-accent: var(--SmartThemeQuoteColor);
     --ne-border: color-mix(in srgb, var(--SmartThemeBorderColor) 82%, transparent);
     --ne-border-soft: color-mix(in srgb, var(--ne-border) 72%, transparent);
@@ -22,7 +23,21 @@
     --ne-shadow-sidebar: 0 20px 40px rgb(0 0 0 / 0.24);
     --ne-shadow-popover: 0 16px 34px rgb(0 0 0 / 0.28);
     --ne-panel-blur: blur(22px);
-    --ne-size: var(--mainFontSize);
+    --ne-font-scale: 1;
+    --ne-size: calc(var(--mainFontSize) * var(--ne-font-scale));
+    /* Shared typography scale. Component rules should reference these tokens instead of hard-coded ratios. */
+    --ne-font-body: var(--ne-size);
+    --ne-font-emphasis: calc(var(--ne-size) * 0.95);
+    --ne-font-body-sm: calc(var(--ne-size) * 0.92);
+    --ne-font-ui-strong: calc(var(--ne-size) * 0.9);
+    --ne-font-ui: calc(var(--ne-size) * 0.88);
+    --ne-font-meta: calc(var(--ne-size) * 0.86);
+    --ne-font-support: calc(var(--ne-size) * 0.84);
+    --ne-font-label: calc(var(--ne-size) * 0.82);
+    --ne-font-overline: calc(var(--ne-size) * 0.8);
+    --ne-font-caption: calc(var(--ne-size) * 0.78);
+    --ne-editor-base-size: clamp(1rem, 1vw + 0.8rem, 1.1rem);
+    --ne-editor-size: calc(var(--ne-editor-base-size) * var(--ne-font-scale));
     --ne-writing-font: Georgia, "Times New Roman", serif;
     --ne-z: 20000;
 }
@@ -43,7 +58,7 @@
     resize: none;
     background: var(--ne-surface-panel);
     color: var(--ne-text);
-    font-size: var(--ne-size);
+    font-size: var(--ne-font-body);
     font-family: var(--ne-writing-font);
     border: 1px solid var(--ne-border);
     border-radius: 8px;
@@ -226,6 +241,24 @@
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+#ne-panel button,
+#ne-panel input,
+#ne-panel select,
+#ne-panel textarea {
+    font-family: inherit;
+    line-height: inherit;
+}
+
+.ne-panel label:not([class]),
+.ne-panel p:not([class]),
+.ne-panel span:not([class]),
+.ne-panel strong:not([class]),
+.ne-panel small:not([class]) {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+}
+
 .ne-btn--icon {
     min-width: 2.2rem;
     min-height: 2.2rem;
@@ -400,6 +433,10 @@
     margin-top: 0.8rem;
 }
 
+.ne-sidebar__section {
+    margin-left: calc(var(--ne-section-depth, 0) * 0.75rem);
+}
+
 .ne-sidebar__section-header {
     position: relative;
     display: flex;
@@ -425,6 +462,11 @@
 .ne-folder-row:hover {
     background: var(--ne-surface-card);
     border-color: var(--ne-border-soft);
+}
+
+.ne-folder-row--expanded {
+    background: color-mix(in srgb, var(--SmartThemeBorderColor) 8%, transparent);
+    border-color: color-mix(in srgb, var(--SmartThemeBorderColor) 14%, transparent);
 }
 
 .ne-folder-row__main {
@@ -473,6 +515,7 @@
 .ne-lorebook-folder__title {
     flex: 1 1 auto;
     min-width: 0;
+    font-size: var(--ne-font-body);
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -508,7 +551,7 @@
 
 .ne-lorebook-picker__title {
     margin: 0;
-    font-size: 0.86em;
+    font-size: var(--ne-font-meta);
     font-weight: 700;
 }
 
@@ -558,7 +601,7 @@
 
 .ne-lorebook-picker__option-meta,
 .ne-lorebook-picker__empty {
-    font-size: 0.84em;
+    font-size: var(--ne-font-support);
     opacity: 0.72;
 }
 
@@ -572,7 +615,7 @@
     gap: 0.45rem;
     width: 100%;
     justify-content: flex-start;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
     margin-top: 0.2rem;
 }
 
@@ -597,13 +640,13 @@
 
 .ne-delete-panel__section-label {
     margin: 0;
-    font-size: 0.86em;
+    font-size: var(--ne-font-meta);
     font-weight: 700;
 }
 
 .ne-delete-panel__warning {
     margin: 0;
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     color: color-mix(in srgb, var(--ne-danger) 80%, var(--ne-text));
     display: flex;
     align-items: center;
@@ -630,7 +673,7 @@
     padding: 0.3rem 0.4rem;
     border-radius: var(--ne-radius, 4px);
     cursor: pointer;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
 }
 
 .ne-delete-panel__entry-row:hover {
@@ -661,7 +704,7 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     opacity: 0.7;
 }
 
@@ -732,7 +775,7 @@
 }
 
 .ne-lore-entry-dialog__label {
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     font-weight: 700;
     opacity: 0.82;
 }
@@ -753,7 +796,7 @@
     padding: 0.15rem 0.45rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--ne-accent) 14%, transparent);
-    font-size: 0.8em;
+    font-size: var(--ne-font-overline);
     opacity: 0.88;
     white-space: nowrap;
 }
@@ -794,6 +837,7 @@
     display: inline-flex;
     align-items: center;
     min-width: 0;
+    font-size: var(--ne-font-body);
 }
 
 .ne-lore-position-header__meta {
@@ -834,7 +878,7 @@
 
 .ne-lorebook-search-hint {
     margin: 0 0 0.6rem;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
     opacity: 0.72;
 }
 
@@ -852,7 +896,7 @@
     justify-content: space-between;
     gap: 0.75rem;
     min-width: 0;
-    font-size: 0.86em;
+    font-size: var(--ne-font-meta);
     opacity: 0.8;
 }
 
@@ -881,7 +925,7 @@
 
 .ne-sidebar__section-title {
     margin: 0;
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -891,7 +935,7 @@
 .ne-sidebar__section-empty {
     margin: 0;
     padding: 0.5rem 0.7rem;
-    font-size: 0.92em;
+    font-size: var(--ne-font-body-sm);
     opacity: 0.7;
 }
 
@@ -908,7 +952,7 @@
 }
 
 .ne-sidebar__empty-hint {
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
 }
 
 .ne-lore-empty-position-list {
@@ -925,7 +969,7 @@
     justify-content: flex-start;
     width: 100%;
     text-align: left;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
 }
 
 .ne-note-list {
@@ -997,6 +1041,7 @@
 .ne-note-row__title {
     flex: 1 1 auto;
     min-width: 0;
+    font-size: var(--ne-font-body);
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -1006,11 +1051,11 @@
 .ne-note-row__pin {
     flex-shrink: 0;
     opacity: 0.72;
-    font-size: 0.84em;
+    font-size: var(--ne-font-support);
 }
 
 .ne-note-row__excerpt {
-    font-size: 0.92em;
+    font-size: var(--ne-font-body-sm);
     opacity: 0.72;
     white-space: nowrap;
     overflow: hidden;
@@ -1068,7 +1113,7 @@
 
 .ne-lore-row__meta {
     min-width: 0;
-    font-size: 0.86em;
+    font-size: var(--ne-font-meta);
     opacity: 0.72;
     white-space: nowrap;
     overflow: hidden;
@@ -1086,7 +1131,14 @@
 .ne-lore-row__depth-input,
 .ne-lore-row__select {
     padding: 0.32rem 0.42rem;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
+}
+
+#ne-panel select.ne-lore-row__select,
+#ne-panel select.ne-lore-meta__select {
+    font-size: var(--ne-font-ui) !important;
+    font-family: inherit !important;
+    line-height: inherit;
 }
 
 .ne-lore-row__order-input {
@@ -1135,7 +1187,7 @@
 }
 
 .ne-lore-row__control-label {
-    font-size: 0.78em;
+    font-size: var(--ne-font-caption);
     font-weight: 600;
     opacity: 0.72;
     letter-spacing: 0.02em;
@@ -1169,7 +1221,7 @@
 .ne-note-row__move-label {
     width: 100%;
     margin: 0;
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     opacity: 0.68;
 }
 
@@ -1375,7 +1427,7 @@
 .ne-menu__hint {
     margin: 0 0 0.35rem;
     padding: 0 0.35rem;
-    font-size: 0.86em;
+    font-size: var(--ne-font-meta);
     opacity: 0.7;
 }
 
@@ -1430,8 +1482,17 @@
     border-radius: 0.55rem;
     background: color-mix(in srgb, var(--ne-surface-card) 86%, transparent);
     color: inherit;
-    font: inherit;
+    font-family: inherit;
+    font-size: var(--ne-font-body);
+    line-height: inherit;
+    font-weight: inherit;
     padding: 0.45rem 0.62rem;
+}
+
+#ne-panel select.ne-input {
+    font-size: var(--ne-font-body) !important;
+    font-family: inherit !important;
+    line-height: inherit;
 }
 
 .ne-format-bar {
@@ -1535,7 +1596,7 @@
 }
 
 .ne-lore-meta__summary-title {
-    font-size: 0.78em;
+    font-size: var(--ne-font-caption);
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -1544,7 +1605,7 @@
 
 .ne-lore-meta__summary-text {
     min-width: 0;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
     line-height: 1.45;
     opacity: 0.82;
 }
@@ -1568,7 +1629,7 @@
     justify-self: start;
     flex-shrink: 0;
     white-space: nowrap;
-    font-size: 0.88em;
+    font-size: var(--ne-font-ui);
 }
 
 .ne-btn--meta-toggle,
@@ -1598,7 +1659,7 @@
 }
 
 .ne-lore-meta__label {
-    font-size: 0.82em;
+    font-size: var(--ne-font-label);
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -1615,7 +1676,7 @@
 }
 
 .ne-lore-meta__hint {
-    font-size: 0.84em;
+    font-size: var(--ne-font-support);
     opacity: 0.68;
 }
 
@@ -1646,7 +1707,11 @@
     display: flex;
     align-items: center;
     gap: 0.55rem;
-    font-size: 0.9em;
+    font-size: var(--ne-font-ui-strong);
+}
+
+.ne-lore-meta__checkbox > span {
+    font-size: inherit;
 }
 
 .ne-lore-meta__overflow-field {
@@ -1681,7 +1746,7 @@
     background: transparent;
     color: inherit;
     font: inherit;
-    font-size: 0.92em;
+    font-size: var(--ne-font-body-sm);
     padding: 0.32rem 0.72rem;
     cursor: pointer;
 }
@@ -1744,7 +1809,7 @@
     flex: 1 0 clamp(10rem, 32vh, 16rem);
     min-height: clamp(10rem, 32vh, 16rem);
     font-family: var(--ne-writing-font);
-    font-size: clamp(1rem, 1vw + 0.8rem, 1.1rem);
+    font-size: var(--ne-editor-size);
     line-height: 1.75;
 }
 
@@ -1953,6 +2018,7 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    font-size: var(--ne-font-body);
 }
 
 .ne-settings-panel__section {
@@ -1961,12 +2027,73 @@
     gap: 0.4rem;
 }
 
+.ne-settings-panel__section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
 .ne-settings-panel__section-label {
-    font-size: 0.8em;
+    font-size: var(--ne-font-overline);
     font-weight: 600;
     color: var(--ne-label);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.ne-settings-panel__section-meta,
+.ne-settings-panel__subsection-label,
+.ne-settings-panel__transfer-meta,
+.ne-settings-panel__empty,
+.ne-settings-panel__transfer-hint {
+    font-size: var(--ne-font-label);
+    color: var(--ne-label);
+}
+
+.ne-settings-panel__section-meta,
+.ne-settings-panel__empty,
+.ne-settings-panel__transfer-hint {
+    margin: 0;
+}
+
+.ne-settings-panel__subsection-label {
+    margin: 0;
+    font-weight: 600;
+}
+
+.ne-settings-panel__range-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: var(--ne-font-emphasis);
+}
+
+.ne-settings-panel__range-label > span,
+.ne-settings-panel__range-label > strong {
+    font-size: inherit;
+}
+
+.ne-settings-panel__range-label strong {
+    flex: 0 0 auto;
+    font-size: var(--ne-font-ui-strong);
+    opacity: 0.82;
+}
+
+.ne-settings-panel__range {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--ne-accent);
+    cursor: ew-resize;
+}
+
+.ne-settings-panel__reset {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    font-size: var(--ne-font-support);
+    padding-inline: 0.7rem;
 }
 
 .ne-settings-panel__checkbox-row {
@@ -1974,4 +2101,107 @@
     align-items: center;
     gap: 0.5rem;
     cursor: pointer;
+    font-size: var(--ne-font-body);
+}
+
+.ne-settings-panel__checkbox-row > span {
+    font-size: inherit;
+}
+
+.ne-settings-panel__transfer-actions,
+.ne-settings-panel__mini-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.ne-settings-panel__mini-button {
+    font-size: var(--ne-font-support);
+}
+
+.ne-settings-panel__transfer-list {
+    display: grid;
+    gap: 0.6rem;
+    max-height: 18rem;
+    overflow: auto;
+    padding-right: 0.15rem;
+}
+
+.ne-settings-panel__transfer-group {
+    display: grid;
+    gap: 0.35rem;
+    padding: 0.6rem;
+    border: 1px solid var(--ne-border-soft);
+    border-radius: 0.75rem;
+    background: color-mix(in srgb, var(--ne-surface-card) 88%, transparent);
+}
+
+.ne-settings-panel__transfer-children {
+    display: grid;
+    gap: 0.2rem;
+    padding-left: 1rem;
+}
+
+.ne-settings-panel__transfer-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--ne-font-ui);
+    cursor: pointer;
+}
+
+.ne-settings-panel__transfer-row--folder {
+    font-size: var(--ne-font-body);
+    font-weight: 600;
+}
+
+.ne-settings-panel__transfer-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ne-settings-panel__export-button {
+    justify-content: center;
+}
+
+/* ─── Bulk select ─────────────────────────────────────────────────────────── */
+
+.ne-bulk-delete-bar {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: var(--ne-surface-card);
+    border-top: 1px solid var(--ne-border-soft);
+    z-index: 1;
+}
+
+.ne-bulk-delete-bar .ne-btn {
+    flex: 1;
+    justify-content: center;
+}
+
+.ne-bulk-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    cursor: pointer;
+}
+
+.ne-bulk-row .ne-note-row__title-line {
+    flex: 1;
+    min-width: 0;
+}
+
+.ne-bulk-row__check {
+    flex-shrink: 0;
+    width: 1.1rem;
+    text-align: center;
+    color: var(--ne-text-soft);
 }

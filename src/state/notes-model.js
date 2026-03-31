@@ -13,6 +13,13 @@ export function normaliseSettings(candidate) {
     );
     const folderIds = new Set(folders.map((folder) => folder.id));
 
+    // Validate parentFolderId references — null out any that point to non-existent folders.
+    folders.forEach((folder) => {
+        if (folder.parentFolderId && !folderIds.has(folder.parentFolderId)) {
+            folder.parentFolderId = null;
+        }
+    });
+
     const notes = deduplicateById(
         Array.isArray(candidate?.notes) ? candidate.notes.map(makeNote) : [],
     ).map((note) => ({
@@ -43,6 +50,7 @@ export function makeFolder(folder = {}) {
         name: normaliseFolderName(folder.name),
         createdAt: isIsoDate(folder.createdAt) ? folder.createdAt : new Date().toISOString(),
         order: Number.isFinite(folder.order) ? folder.order : Date.now(),
+        parentFolderId: typeof folder.parentFolderId === 'string' && folder.parentFolderId ? folder.parentFolderId : null,
     };
 }
 
