@@ -2167,6 +2167,37 @@
     justify-content: center;
 }
 
+/* ─── Panel resize handles (mobile touch-action fix) ─────────────────────── */
+/* These invisible overlays give the browser a touch-action:none anchor at    */
+/* each resize zone, preventing pointercancel from firing mid-drag.           */
+
+.ne-panel__resize-handle {
+    position: absolute;
+    touch-action: none;
+    z-index: 10;
+}
+
+.ne-panel__resize-handle--bottom-left {
+    left: 0;
+    bottom: 0;
+    width: 56px;
+    height: 56px;
+}
+
+.ne-panel__resize-handle--bottom-right {
+    right: 0;
+    bottom: 0;
+    width: 56px;
+    height: 56px;
+}
+
+.ne-panel__resize-handle--bottom {
+    left: 56px;
+    right: 56px;
+    bottom: 0;
+    height: 30px;
+}
+
 /* ─── Bulk select ─────────────────────────────────────────────────────────── */
 
 .ne-bulk-delete-bar {
