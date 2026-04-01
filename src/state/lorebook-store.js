@@ -484,10 +484,13 @@ export async function replaceLorebookWorkspaceSlot(slotId, nextLorebookId) {
     runtime.workspaceRevision += 1;
     ensureBookRecords(runtime.lorebookIds);
     runtime.activeLorebookId = trimmedLorebookId;
+    runtime.availableLorebookNames = uniqueStrings([
+        ...runtime.availableLorebookNames,
+        trimmedLorebookId,
+    ]);
     persistUiState();
     invalidateSnapshots();
     emitChange();
-    await ensureLorebookWorkspace({ forceRefresh: true });
     if (!runtime.lorebookIds.includes(trimmedLorebookId)) {
         return false;
     }

@@ -111,7 +111,7 @@ export default {
     'lorebook.badge.primary': 'Primary',
     'lorebook.row.expand': 'Expand {name}',
     'lorebook.row.collapse': 'Collapse {name}',
-    'lorebook.row.replaceSlot': 'Replace lorebook slot {name}',
+    'lorebook.row.replaceSlot': 'Switch lorebook slot {name}',
     'lorebook.row.refresh': 'Refresh lorebook',
     'lorebook.row.hide': 'Hide lorebook from workspace',
     'lorebook.row.actions': 'Lorebook actions',
@@ -149,7 +149,7 @@ export default {
 
     // ── Lorebook picker panel ────────────────────────────────────────────────
     'picker.addTitle': 'Add lorebook to workspace',
-    'picker.replaceTitle': 'Replace {name}',
+    'picker.replaceTitle': 'Switch {name}',
     'picker.close': 'Close lorebook picker',
     'picker.searchLabel': 'Search lorebooks',
     'picker.searchPlaceholder': 'Search lorebooks',

@@ -40,13 +40,17 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
     let interactionLocked = false;
 
     refs.root.addEventListener('pointerdown', (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         if (!event.isPrimary || event.button !== 0) {
             return;
         }
 
         const target = event.target instanceof Element ? event.target : null;
         const titleButton = target?.closest('.ne-toolbar__title');
-        const blockedTarget = target?.closest('.ne-tags-menu, .ne-toolbar__title-input, .ne-btn');
+        const blockedTarget = getToolbarInteractiveTarget(target);
         if (blockedTarget && !titleButton) {
             return;
         }
@@ -74,6 +78,10 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
     });
 
     refs.root.addEventListener('pointermove', (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         if (event.pointerId !== dragPointerId) {
             return;
         }
@@ -116,6 +124,10 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
     });
 
     const endDrag = (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         if (event.pointerId !== dragPointerId) {
             return;
         }
@@ -127,11 +139,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
         }
 
         if (draggingFromTitle) {
-            window.setTimeout(() => {
-                if (refs.titleButton?.dataset.skipClick === 'true') {
-                    delete refs.titleButton.dataset.skipClick;
-                }
-            }, 0);
+            clearDeferredTitleSkipClick(refs.titleButton);
         }
 
         dragPointerId = null;
@@ -145,6 +153,132 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
 
     refs.root.addEventListener('pointerup', endDrag);
     refs.root.addEventListener('pointercancel', endDrag);
+
+    refs.root.addEventListener('touchstart', (event) => {
+        if (!shouldUseMobileTouchFallback() || event.touches.length !== 1) {
+            return;
+        }
+
+        const target = event.target instanceof Element ? event.target : null;
+        const titleButton = target?.closest('.ne-toolbar__title');
+        const blockedTarget = getToolbarInteractiveTarget(target);
+        if (blockedTarget && !titleButton) {
+            return;
+        }
+
+        const rect = getPanelRect(state.panelEl);
+        const touch = getTrackedTouch(event);
+        if (!rect || !touch) {
+            return;
+        }
+
+        let activeTouchId = touch.identifier;
+        let touchGrabX = touch.clientX - rect.left;
+        let touchGrabY = touch.clientY - rect.top;
+        let touchStartX = touch.clientX;
+        let touchStartY = touch.clientY;
+        let touchPendingDrag = true;
+        let touchDraggingFromTitle = Boolean(titleButton);
+        let touchInteractionLocked = false;
+
+        const endTouchDrag = (endEvent) => {
+            const activeTouch = getTrackedTouch(endEvent, activeTouchId, { includeChangedTouches: true });
+            if (!activeTouch) {
+                return;
+            }
+
+            if (touchDraggingFromTitle) {
+                clearDeferredTitleSkipClick(refs.titleButton);
+            }
+
+            activeTouchId = null;
+            touchPendingDrag = false;
+            touchDraggingFromTitle = false;
+            if (touchInteractionLocked) {
+                endPointerInteraction(state.panelEl);
+                touchInteractionLocked = false;
+            }
+
+            document.removeEventListener('touchmove', moveTouchDrag);
+            document.removeEventListener('touchend', endTouchDrag);
+            document.removeEventListener('touchcancel', endTouchDrag);
+        };
+
+        const moveTouchDrag = (moveEvent) => {
+            const activeTouch = getTrackedTouch(moveEvent, activeTouchId);
+            if (!activeTouch) {
+                return;
+            }
+
+            const movedEnough = Math.hypot(
+                activeTouch.clientX - touchStartX,
+                activeTouch.clientY - touchStartY,
+            ) >= RESIZE_MOVE_THRESHOLD;
+            if (touchPendingDrag && !movedEnough) {
+                return;
+            }
+
+            if (touchPendingDrag) {
+                touchPendingDrag = false;
+                if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
+                    onExitFullscreen?.();
+                }
+
+                if (touchDraggingFromTitle && refs.titleButton) {
+                    refs.titleButton.dataset.skipClick = 'true';
+                }
+
+                beginPointerInteraction(state.panelEl, 'grabbing');
+                touchInteractionLocked = true;
+            }
+
+            const panelRect = getPanelRect(state.panelEl);
+            if (!panelRect) {
+                return;
+            }
+
+            if (moveEvent.cancelable) {
+                moveEvent.preventDefault();
+            }
+
+            const nextBounds = getClampedBounds(state, {
+                width: panelRect.width,
+                height: panelRect.height,
+                left: activeTouch.clientX - touchGrabX,
+                top: activeTouch.clientY - touchGrabY,
+            });
+
+            setElementStyleProperty(state.panelEl, 'left', `${Math.round(nextBounds.left)}px`);
+            setElementStyleProperty(state.panelEl, 'top', `${Math.round(nextBounds.top)}px`);
+            rememberWindowedBounds?.();
+        };
+
+        if (event.cancelable) {
+            event.preventDefault();
+        }
+
+        document.addEventListener('touchmove', moveTouchDrag, { passive: false });
+        document.addEventListener('touchend', endTouchDrag);
+        document.addEventListener('touchcancel', endTouchDrag);
+    }, { passive: false });
+}
+
+function getToolbarInteractiveTarget(target) {
+    if (!(target instanceof Element)) {
+        return null;
+    }
+
+    return target.closest([
+        '.ne-tags-menu',
+        '.ne-toolbar__overflow-menu',
+        '.ne-toolbar__title-input',
+        'button',
+        'input',
+        'select',
+        'textarea',
+        'a[href]',
+        '[role="button"]',
+    ].join(', '));
 }
 
 export function initPanelResize(state, { onExitFullscreen, onResizeEnd, rememberWindowedBounds } = {}) {
@@ -161,6 +295,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     let resizeHint = '';
 
     panel.addEventListener('pointerdown', (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         if (!event.isPrimary || event.button !== 0) {
             return;
         }
@@ -206,6 +344,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     });
 
     panel.addEventListener('pointermove', (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         const rect = getPanelRect(state.panelEl);
         if (!rect) {
             setResizeHint(panel, '');
@@ -246,6 +388,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     });
 
     const endResize = (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
         if (event.pointerId !== resizePointerId) {
             return;
         }
@@ -270,6 +416,10 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     };
 
     panel.addEventListener('pointerleave', () => {
+        if (shouldUseMobileTouchFallback()) {
+            return;
+        }
+
         if (resizePointerId !== null) {
             return;
         }
@@ -281,6 +431,92 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
 
     panel.addEventListener('pointerup', endResize);
     panel.addEventListener('pointercancel', endResize);
+
+    panel.querySelectorAll('.ne-panel__resize-handle').forEach((handle) => {
+        handle.addEventListener('touchstart', (event) => {
+            if (!shouldUseMobileTouchFallback() || event.touches.length !== 1) {
+                return;
+            }
+
+            if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
+                return;
+            }
+
+            const resizeHandle = event.currentTarget instanceof Element ? event.currentTarget : null;
+            const nextResizeMode = getResizeHandleMode(resizeHandle);
+            const rect = getPanelRect(state.panelEl);
+            const touch = getTrackedTouch(event);
+            if (!nextResizeMode || !rect || !touch) {
+                return;
+            }
+
+            let activeTouchId = touch.identifier;
+            const touchStartX = touch.clientX;
+            const touchStartY = touch.clientY;
+            const touchStartBounds = {
+                width: rect.width,
+                height: rect.height,
+                left: rect.left,
+                top: rect.top,
+            };
+
+            resizeHint = nextResizeMode;
+            setResizeHint(panel, resizeHint);
+            beginPointerInteraction(panel, getResizeCursor(nextResizeMode));
+
+            const endTouchResize = (endEvent) => {
+                const activeTouch = getTrackedTouch(endEvent, activeTouchId, { includeChangedTouches: true });
+                if (!activeTouch) {
+                    return;
+                }
+
+                activeTouchId = null;
+                resizeHint = '';
+                setResizeHint(panel, '');
+                panel.style.cursor = '';
+                endPointerInteraction(panel);
+                onResizeEnd?.();
+
+                document.removeEventListener('touchmove', moveTouchResize);
+                document.removeEventListener('touchend', endTouchResize);
+                document.removeEventListener('touchcancel', endTouchResize);
+            };
+
+            const moveTouchResize = (moveEvent) => {
+                const activeTouch = getTrackedTouch(moveEvent, activeTouchId);
+                if (!activeTouch) {
+                    return;
+                }
+
+                if (moveEvent.cancelable) {
+                    moveEvent.preventDefault();
+                }
+
+                const nextBounds = getResizedBounds(
+                    nextResizeMode,
+                    activeTouch.clientX - touchStartX,
+                    activeTouch.clientY - touchStartY,
+                    touchStartBounds,
+                    state.toolbarRefs,
+                );
+
+                setElementStyleProperty(state.panelEl, 'left', `${Math.round(nextBounds.left)}px`);
+                setElementStyleProperty(state.panelEl, 'top', `${Math.round(nextBounds.top)}px`);
+                setElementStyleProperty(state.panelEl, 'height', `${Math.round(nextBounds.height)}px`);
+                setElementStyleProperty(state.panelEl, 'width', `${Math.round(nextBounds.width)}px`);
+                rememberWindowedBounds?.();
+            };
+
+            if (event.cancelable) {
+                event.preventDefault();
+            }
+            event.stopPropagation();
+
+            document.addEventListener('touchmove', moveTouchResize, { passive: false });
+            document.addEventListener('touchend', endTouchResize);
+            document.addEventListener('touchcancel', endTouchResize);
+        }, { passive: false });
+    });
 }
 
 export function initPanelWheelResize(state, { onResizeEnd, rememberWindowedBounds } = {}) {
@@ -414,6 +650,26 @@ function getResizeCursor(axis) {
     return '';
 }
 
+function getResizeHandleMode(handle) {
+    if (!(handle instanceof Element)) {
+        return '';
+    }
+
+    if (handle.classList.contains('ne-panel__resize-handle--bottom-left')) {
+        return 'bottom-left';
+    }
+
+    if (handle.classList.contains('ne-panel__resize-handle--bottom-right')) {
+        return 'bottom-right';
+    }
+
+    if (handle.classList.contains('ne-panel__resize-handle--bottom')) {
+        return 'bottom';
+    }
+
+    return '';
+}
+
 function getResizedBounds(mode, deltaX, deltaY, startBounds, toolbarRefs) {
     const viewport = getViewportMetrics();
     const margin = isMobileViewport() ? MOBILE_MARGIN : DESKTOP_MARGIN;
@@ -458,6 +714,46 @@ function setResizeHint(panel, zone = '') {
     }
 
     panel.dataset.resizeZone = zone;
+}
+
+function shouldUseMobileTouchFallback() {
+    return window.matchMedia('(pointer: coarse)').matches || (supportsTouchInput() && isMobileViewport());
+}
+
+function shouldUseMobileTouchFallbackForPointer(event) {
+    return event?.pointerType === 'touch' || shouldUseMobileTouchFallback();
+}
+
+function supportsTouchInput() {
+    return navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+}
+
+function getTrackedTouch(event, identifier = null, { includeChangedTouches = false } = {}) {
+    const touchLists = [];
+    if (event?.touches) {
+        touchLists.push(event.touches);
+    }
+    if (includeChangedTouches && event?.changedTouches) {
+        touchLists.push(event.changedTouches);
+    }
+
+    for (const touchList of touchLists) {
+        for (const touch of touchList) {
+            if (identifier === null || touch.identifier === identifier) {
+                return touch;
+            }
+        }
+    }
+
+    return null;
+}
+
+function clearDeferredTitleSkipClick(titleButton) {
+    window.setTimeout(() => {
+        if (titleButton?.dataset.skipClick === 'true') {
+            delete titleButton.dataset.skipClick;
+        }
+    }, 0);
 }
 
 function beginPointerInteraction(panel, cursor = '') {

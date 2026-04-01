@@ -111,7 +111,7 @@ export default {
     'lorebook.badge.primary': '主要',
     'lorebook.row.expand': '展开 {name}',
     'lorebook.row.collapse': '收起 {name}',
-    'lorebook.row.replaceSlot': '替换世界书槽 {name}',
+    'lorebook.row.replaceSlot': '切换世界书槽 {name}',
     'lorebook.row.refresh': '刷新世界书',
     'lorebook.row.hide': '从工作区隐藏世界书',
     'lorebook.row.actions': '世界书操作',
@@ -149,7 +149,7 @@ export default {
 
     // ── 世界书选取面板 ─────────────────────────────────────────────────────────
     'picker.addTitle': '添加世界书到工作区',
-    'picker.replaceTitle': '替换 {name}',
+    'picker.replaceTitle': '切换 {name}',
     'picker.close': '关闭世界书选取器',
     'picker.searchLabel': '搜索世界书',
     'picker.searchPlaceholder': '搜索世界书',

@@ -77,6 +77,9 @@ export function createPanel() {
             <div id="ne-toolbar-host"></div>
             <div class="ne-canvas" id="ne-canvas"></div>
         </div>
+        <div class="ne-panel__resize-handle ne-panel__resize-handle--bottom-left" aria-hidden="true"></div>
+        <div class="ne-panel__resize-handle ne-panel__resize-handle--bottom-right" aria-hidden="true"></div>
+        <div class="ne-panel__resize-handle ne-panel__resize-handle--bottom" aria-hidden="true"></div>
     `;
 
     host.appendChild(panelState.panelEl);

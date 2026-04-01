@@ -467,7 +467,6 @@ export function renderLorebookPickerOptions(picker) {
 function renderLorebookSection(lorebook, model) {
     const rowKey = `lorebook:${lorebook.slotId}`;
     const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
-    const caretIcon = lorebook.isExpanded ? 'fa-chevron-down' : 'fa-chevron-right';
     const showEntryCounters = model.settingsState?.showLorebookEntryCounters !== false;
     const countLabel = Number.isFinite(Number(lorebook.entryCount)) && Number(lorebook.entryCount) > 0
         ? `${lorebook.entryCount}`
@@ -483,24 +482,13 @@ function renderLorebookSection(lorebook, model) {
         <section class="ne-sidebar__section ne-lorebook-section${activeSlotClass}" data-lorebook-id="${escapeHtml(lorebook.id)}" data-slot-id="${escapeHtml(lorebook.slotId)}">
             <header class="ne-sidebar__section-header ne-folder-row ne-reveal-actions-row ne-lorebook-folder${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
                 <button
-                    class="ne-btn ne-btn--soft ne-btn--icon ne-lorebook-folder__caret"
+                    class="ne-folder-row__main ne-lorebook-folder__main"
                     type="button"
                     data-swipe-handle="true"
                     data-action="toggle-workspace-lorebook-expansion"
                     data-slot-id="${escapeHtml(lorebook.slotId)}"
                     aria-label="${escapeHtml(lorebook.isExpanded ? t('lorebook.row.collapse', { name: lorebook.name }) : t('lorebook.row.expand', { name: lorebook.name }))}"
                     title="${escapeHtml(lorebook.isExpanded ? t('lorebook.row.collapse', { name: lorebook.name }) : t('lorebook.row.expand', { name: lorebook.name }))}"
-                >
-                    <i class="fa-solid ${escapeHtml(caretIcon)}"></i>
-                </button>
-                <button
-                    class="ne-folder-row__main ne-lorebook-folder__main"
-                    type="button"
-                    data-swipe-handle="true"
-                    data-action="open-replace-workspace-lorebook-picker"
-                    data-slot-id="${escapeHtml(lorebook.slotId)}"
-                    aria-label="${escapeHtml(t('lorebook.row.replaceSlot', { name: lorebook.name }))}"
-                    title="${escapeHtml(t('lorebook.row.replaceSlot', { name: lorebook.name }))}"
                 >
                     <span class="ne-lorebook-folder__title-line">
                         <span class="ne-lorebook-folder__title">${escapeHtml(lorebook.name)}</span>
@@ -510,7 +498,10 @@ function renderLorebookSection(lorebook, model) {
                     </span>
                 </button>
                 ${renderActionGroup(t('lorebook.row.actions'), `
-                    ${renderIconActionButton('refresh-active-lorebook', 'fa-rotate', t('lorebook.row.refresh'), { lorebookId: lorebook.id })}
+                    ${renderIconActionButton('open-replace-workspace-lorebook-picker', 'fa-right-left', t('lorebook.row.replaceSlot', { name: lorebook.name }), {
+                        lorebookId: lorebook.id,
+                        slotId: lorebook.slotId,
+                    })}
                     ${renderIconActionButton('remove-workspace-lorebook', 'fa-xmark', t('lorebook.row.hide'), {
                         lorebookId: lorebook.id,
                         slotId: lorebook.slotId,
