@@ -89,7 +89,7 @@
 2.  **尊重外部修改**：如果你在插件之外修改了世界书，插件会智能检测到变动并尝试同步，而不是粗暴地覆盖掉你的心血。
 3.  **保存是“整本书”的行为**：修改一个词条的任何地方，保存时都会是对整本世界书的完整写入。这是为了和 SillyTavern 的原生逻辑保持一致。
 
-当前版本：`0.1.2`
+
 </details>
 
 <details>
@@ -195,5 +195,6 @@ Know these before you begin.
 3.  **Saving is a Whole-Book Affair.** Modifying a single entry saves the *entire lorebook*. This is intentional and matches SillyTavern's native behavior, ensuring data integrity.
 
 
-Current version: `0.1.2`
+
 </details>
+Current version: `0.1.3`
