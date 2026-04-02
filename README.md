@@ -1,200 +1,332 @@
 <details>
   <summary><b>中文文档</b></summary>
   
-# Note Editor❤️‍🔥
+# Note Editor - 一个酒馆世界书编辑器/备忘录❤️‍🔥
   
-厌倦了在笔记本和酒馆之间反复横跳？灵感来了找不到地方记，世界观设定散落一地？
+在多个文本文件和酒馆界面之间反复横跳？有灵感了却无法快速记录？
 
-**Note Editor** 就是你的解决方案。它是一个内置于酒馆的双模式编辑器，让你在一个清爽的界面里，同时管理你的灵感笔记和角色的世界书。
+**Note Editor** 会解决这个问题。它是一个内置于酒馆的双模式编辑器，让你在同一个界面管理个人笔记和角色世界书。界面采用极简设计，一键适陪各种美化。
 
-左侧是你的文件目录，右侧是你的笔记本。尽情创作吧。
-双端适配！再也不用羡慕电脑端的宽屏了...
+让你再也不用从编辑器来回复制条目。完全双端适配！
 
-- **笔记本模式 (Your Private Journal)**：一个完全属于你的创作空间。随手记下的灵感、剧情草稿、人物小传……都会在这里自动保存，安全又私密。
-- **世界书模式 (The World's Architect)**：这不是副本，也不是演习！你将直接编辑 SillyTavern 的“世界书”源文件。每一次修改，都在实时雕琢你的世界……记得备份。
+- **笔记本模式**：是你的私人创作空间。无论是灵感，草稿构思还是人物设定，都将自动保存。
+- **世界书模式**：会直接编辑酒馆的世界书文件。每次修改都实时生效。
 
-### 🚀 十秒上手，即刻启程
+### 🚀 使用指南
 
-打开侧边栏的魔法棒菜单 → 找到 `Note Editor` → 开始你的创作之旅！
-
----
-
-## 📚 模式一：笔记本 - 你的灵感世界
-
-这里是你思维的延伸，一个充满创造力的小天地。
-
-- **闪念捕捉 (新建笔记)**：点击“新建笔记”，把脑海中一闪而过的念头落实在屏幕上。
-- **构建知识体系 (文件夹)**：灵感太多？用文件夹把它们归类整理。比如“角色设定”、“剧情大纲”、“废弃脑洞”，让一切井井有条。
-- **设为焦点 (置顶)**：最重要的笔记，值得一个专属位置。把它置顶，随时都能看到。
-- **贴上便利贴 (标签)**：比文件夹更自由的分类。你可以给一篇笔记贴上多个标签，比如一篇角色设定，可以同时拥有 #主角 #人类 #黑魔法师 的标签。
-- **全局检索与预览 (搜索 + 预览)**：不仅能搜标题和正文，还能按标签筛选。写作时，随时可以切换到 Markdown 预览，看看排版效果。
+打开侧边栏的魔法棒菜单（扩展菜单）→ 找到 `Note Editor` 
 
 ---
 
-## 🌍 模式二：世界书 
+## 📚 笔记本模式
 
-#### 召唤你的世界书
+#### 核心功能
 
-工作区默认只加载和当前角色关联的书。想添加更多？
-- **刷新同步**：在 SillyTavern 原生界面改了东西？点一下“刷新世界书”，让两个世界同步。
-- **手动入驻**：点击“添加世界书”，从你的图书馆里把它“请”进当前工作区。这只是个快捷键，不是会复制文件。
-- **暂时退场 (隐藏)**：某本书暂时不想看？先“隐藏”它，让工作区更清爽。
+**新建和整理**
+- 点击"新建笔记"创建笔记，输入标题和内容
+- 用文件夹分类整理（点击文件夹标题展开）
+- 创造主文件夹和子文件夹，方便整理收纳
+- 重要笔记可以置顶
 
-#### 为世界添砖加瓦
+**标签系统让你快速筛选**
+- 输入 `#标签名` 后按回车，标签就添加好了（手机和电脑都支持）
+- 点击任意标签，自动筛选出相关笔记
+- 插件会智能建议 `#当前角色名` 标签，方便快速分类
 
-- **创造新词条**：点击“新建词条”，为它选择一个家（目标世界书）、一个舞台（位置）、以及登场顺序（提示词顺序）。如果你已经想好了它该出现在哪，可以直接在那个分组旁边点“在此创建”，一步到位。
-- **铸造新世界**：还是在“新建词条”里，切换到“新建世界书”标签页，给你的新世界命名，然后见证它的诞生。
+**内容管理**
 
-#### 精雕细琢每个词条
+笔记功能：置顶、移动到其他文件夹、删除。
 
-- **关键词**：这是词条能否被AI“想起来”的关键。在关键词面板里，敲下主、副关键词，然后选择它们之间的逻辑关系。
-- **侧边栏的遥控器**：启用/禁用、切换常驻/关键词触发、删除……这些快捷操作让你能像将军一样，快速调兵遣将，批量管理词条。
+文件夹功能：可以在文件夹内直接创建笔记、添加子文件夹、重命名或删除整个文件夹。
 
-#### “位置”和“顺序”
+需要批量清理？使用批量删除功能一次处理多个笔记和文件夹。
 
-- 菜单里的世界书排序，就是ai提示词里的真实的顺序！
-
-#### 跨越时空的搜索
-
-搜索功能会同时扫描词条的标题、正文摘要和所有关键词。
-**小贴士**：为了更精确的结果，先在左侧展开你想要搜索的那本书，再输入关键词。
-
-#### 毁灭的抉择
-
-删除面板里有两个选项，请务必分清：
-- **从工作区隐藏**：像把一本书放回书架。它只是暂时离开你的视线，安然无恙。
-- **删除世界书文件**：像把书丢进壁炉。**它会永远消失**。
+**搜索和预览**
+- 搜索会检索标题、正文和标签，帮助你快速定位
+- 随时切换到 Markdown 预览模式，查看渲染效果
+- 支持导入和导出笔记和文件夹
 
 ---
 
-### ⚙️ 设置 - 你的专属工作室
-
-- 切换语言（中文 / English）
-- 定制默认模式：每次打开，是先进入笔记本，还是世界书控制室？
-- 预设新词条模板：为你未来的创作铺好第一块砖。
-- 隐藏/显示世界书词条数量统计
-
-### 📱 移动端体验指南
-
-在手机的小屏幕上，建议采用“两步走”策略：
-1. 在侧边栏导航，选好你要编辑的词条。
-2. 点击进入**全屏模式**，然后心无旁骛地开始编辑。
+## 🌍 世界书模式
 
 
-### 📜 三条黄金法则
+#### 自动加载世界书
 
-请在开始前阅读，这很重要。
+插件启动时会自动加载当前角色关联的世界书，无需手动添加。
 
-1.  **这里没有副本**：你对世界书的每一次改动，都是在直接操作酒馆的源文件。所见即所得，所改即存档。
-2.  **尊重外部修改**：如果你在插件之外修改了世界书，插件会智能检测到变动并尝试同步，而不是粗暴地覆盖掉你的心血。
-3.  **保存是“整本书”的行为**：修改一个词条的任何地方，保存时都会是对整本世界书的完整写入。这是为了和 SillyTavern 的原生逻辑保持一致。
+#### 世界书管理
+
+**添加和移除**
+- 点击"刷新世界书"同步酒馆世界书
+- 添加其他世界书到工作区
+- 临时隐藏某本世界书
+- 替换工作区中的世界书
+- 批量删除多本世界书或多个词条
+
+**创建新内容**
+
+添加新词条？选择目标世界书、词条位置和提示词顺序，点击创建。
+
+在工作区就能直接创造新的世界书。
+
+#### 关键词系统
+
+关键词决定词条何时被 AI 触发。
+
+输入 `#关键词` 后按回车，主关键词就添加好了。你也可以设置副关键词，并定义它们之间的逻辑关系（AND、OR 等）。
+
+#### 词条控制
+
+每个词条有三个快捷开关：
+- 激活/禁用词条
+- 切换常驻模式或关键词触发模式
+- 删除词条
+
+#### 高级选项
+
+需要更精细的控制？编辑器提供了不可重用、防止进一步递归和概率触发等高级选项。
+
+#### 理解位置和顺序
+
+**位置**：决定词条出现在 AI 提示词的哪个部分（例如角色定义之前、对话示例之后）。
+
+**提示词顺序**：在同一位置内，决定词条的先后顺序。
+
+**侧边栏顺序**：侧边栏中世界书的排列顺序，就是它们被 AI 触发时的实际顺序。
+
+#### 搜索和定位
+
+搜索功能会扫描词条标题、正文摘要和所有关键词。
+
+技巧：先在侧边栏展开目标世界书，再输入关键词搜索，结果会更精确。
+
+#### 删除
+
+删除面板提供两个选项：
+
+- **从工作区隐藏**：只是从视图中移除，文件依然完整保存在硬盘上
+- **删除世界书文件**：永久删除文件，无法恢复
+
+
+---
+
+### ⚙️ 设置
+
+根据你的习惯调整编辑器：
+
+- 切换界面语言（中文 / English）
+- 调整字体大小，找到最舒适的阅读体验
+- 设置启动时默认打开模式（笔记本或世界书）
+- 为新词条设置默认模板，提高创建效率
+- 显示或隐藏每本世界书的词条数量
+
+### 🎨 界面设计
+
+界面保持极简，让你专注于内容本身：
+
+**主题适配**：自动匹配你在酒馆中自定义的主题风格。
+
+**按需显示**：大部分按钮默认隐藏，保持界面整洁。
+- 桌面端：鼠标悬停时显示操作按钮
+- 移动端：在列表项上滑动显示按钮
+
+**文件夹**：点击文件夹标题即可展开或折叠笔记。
+
+### 📱 移动端体验
+
+#### 手势操作
+
+- **向右滑动**：打开侧边栏
+- **向左滑动**：关闭侧边栏  
+- **在列表项上滑动**：显示操作按钮
+
+#### 推荐流程
+
+移动端使用建议：先在侧边栏选择要编辑的内容 → 切换到全屏模式 → 专注编辑。
+
+### 💡 快捷操作
+
+让你的工作更高效：
+- Ctrl + 鼠标拖动可以调整窗口大小
+- 输入 `#标签` 或 `#关键词` 后按回车快速添加
+
+---
+
+### 📜 使用前必读
+
+重要提示，避免数据丢失：
+
+**不是副本**：你对世界书的每次修改都将直接写入酒馆的世界书源文件。记得定期备份。
+
 
 
 </details>
 
 <details>
-  <summary><b> English Docs</b></summary>
+  <summary><b>English Docs</b></summary>
   
 # Note Editor❤️‍🔥
 
-Tired of juggling a dozen text files and SillyTavern's UI? 
+Juggling between lots of files and SillyTavern's interface? Inspiration strikes but you can't find the right place to capture it?
 
-**Note Editor** is your new command center. It's a dual-mode editor living right inside SillyTavern, designed to manage both your private creative notes and your character's active lorebooks in one clean, powerful interface.
+**Note Editor** fixes this. It's a dual-mode editor built into SillyTavern, managing both your personal notes and character lorebooks in a single interface. The design is minimalistic and automatically adapts to your SillyTavern theme.
 
-Browse on the left, create on the right. Let's build some worlds.
+File directory on the left, editor on the right. Supports both desktop and mobile experiences!✮
 
-### ✨ One Panel, Two Modes
+### ✨ Two Modes
 
--   **Notes Mode (Your Private Journal)**: A personal scratchpad just for you. Plot bunnies, character sketches, random dialogue—it all lives here, autosaved and managed by the plugin.
--   **Lorebook Mode (The World's Architect)**: This is the real deal. You're editing live SillyTavern lorebook files directly. Every change you make is a change to the lorebooks itself.
+- **Notes Mode**: Your personal creative workspace. Ideas, drafts, character lore—everything auto-saves so nothing gets lost.
+- **Lorebook Mode**: Direct editing of SillyTavern's lorebook source files. Every change takes effect immediately. Remember to backup regularly.
   
-### 🚀 Quick Start in 10 Seconds
+### 🚀 Getting Started
 
-Open the extensions menu (the magic wand) → find `Note Editor` → Let the writing begin!
-
----
-
-## 📚 Mode One: Notes 
-
-This is your space to be messy, to experiment, to create.
-
--   **Capture Ideas Instantly**: Click "Create note", give it a title, and let your thoughts flow.
--   **Build Your System (Folders)**: Perfect for separating "Character Bios," "Plot Outlines," and "Random Thoughts"
--   **Keep It Front and Center (Pin)**: Pin your most important notes to the top. No more digging for that one important file.
--   **Tagsss (Tags)**: More flexible than folders. Think of them as sticky notes. A character bio could be tagged with #Protagonist, #Mage, and #Grumpy. Filter by any tag in the sidebar.
--   **Find Anything, Fast (Search + Preview)**: Search titles and content, layer on tag filters, and flip to the Markdown preview anytime to see your formatting come to life.
+Open the wand menu in the bottom bar → find `Note Editor` → Start writing
 
 ---
 
-## 🌍 Mode Two: Lorebook - The Control Room
+## 📚 Notes Mode
 
-Welcome, Architect. Here, you directly shape the information that defines your world and characters.
+Your personal note management hub.
 
-#### Summoning Your Lorebooks
+#### Core Features
 
-The workspace intelligently loads lorebooks linked to your current character. To bring in more:
+**Create and Organize**
+- Click "Create note" to start a new note with a title and content
+- Use folders to organize (click folder headers to expand)
+- Pin important notes to keep them visible
 
--   **Refresh & Sync**: Made changes in the native SillyTavern UI? Hit "Refresh lorebooks" to get everything in sync.
--   **Add Manually**: Click "Add lorebook" to pull any lorebook from your library into the current view. It’s a shortcut, not a copy.
--   **Declutter (Hide)**: Workspace getting crowded? Hide a book. The file is safe, it's just temporarily invisible.
+**Tag System for Quick Filtering**
+- Type `#tagname` and press Enter—tag added (works on mobile and desktop)
+- Click any tag to automatically filter related notes
+- Smart suggestions: the plugin auto-suggests `#currentcharactername` for easy categorization
 
-#### Breathing Life into Your World
+**Manage Your Content**
 
--   **Create a New Lore Entry**: Click "Create lore entry," choose its home (the lorebook), its stage (position), and its cue (prompt order). Know where it should go already? Use the "create" button right on the group header to skip a step.
--   **Forge a New Lorebook**: On the "Create" panel, switch to the "New Lorebook" tab, give your new world a name, and hit create. A real file is born.
+Each note has three actions: pin, move to another folder, or delete.
 
--   **Keywords**: This is how an entry gets triggered. Expand the keyword panel, type your keys, and choose the logic. You can also type in #keyword, hit enter, to quickly add to main keywords.
--   **Sidebar Remote Control**: Enable/disable, toggle constant vs. keyword activation, delete. The sidebar is for quick actions. The editor is for thoughtful composition.
+Folders have more options: create a note inside the folder, add a subfolder, rename, or delete the entire folder.
 
-#### The Art of Prompt Weaving (Positions & Order)
+Need to clean up in bulk? Use batch delete to handle multiple notes and folders at once.
 
-Think of every entry as a card you're inserting into the final prompt sent to the AI.
-
--   **Position**: This determines *which section* of the prompt the card goes into (e.g., before the character's definition, after the example dialogue).
--   **Prompt Order**: This sorts the cards *within* the same section.
--   **Sidebar Order** : The order entries appears in sidebar is the order they will be sent to ai when triggered. 
-
-#### Search
-
-Search hits titles, body summaries, and all keywords.
-Expand the lorebook you're targeting in the sidebar before you search. Useful for hundreds of entries.
-
-#### To Banish, or to Destroy?
-
-The delete panel offers a critical choice:
-
--   **Hide from workspace**: The book is removed from your view, but the file is 100% safe on your drive.
--   **Delete lorebook file**: The book and its file are **permanently erased**.
-
-**When in doubt, always choose "Hide."**
+**Search and Preview**
+- Search scans titles, body text, and tags to help you find things quickly
+- Toggle Markdown preview anytime to see how it renders
+- Import and export notes and folders
 
 ---
 
-### ⚙️ Settings - Your Workshop, Your Rules
+## 🌍 Lorebook Mode
 
--   Language (中文 / English)
--   Default mode on open (start in Notes or Lorebook?)
--   Default settings for new lore entries to streamline your workflow.
--   Display number of entries in each lorebook
+Direct control over your lorebook data. No more complicated/cramped interface! Provides the smoothest writing experience possible.
 
-### 📱 On The Go (Mobile Usage)
+#### Ready on Startup
 
-For the best mobile experience, we recommend this flow:
-1.  Select the entry you want to edit from the sidebar.
-2.  Switch to **fullscreen mode**.
-3.  Edit with a clean, focused view.
+The plugin auto-loads the lorebook linked to your current character when it starts—no manual setup needed.
+
+#### Lorebook Management
+
+**Add and Remove**
+- Click "Refresh lorebooks" to sync changes made in SillyTavern's interface (that hasn't applied already)
+- Add other lorebooks from your library to the workspace (doesn't copy files, just quick access)
+- Temporarily hide a lorebook—the file itself stays completely safe
+- Replace lorebooks in your workspace
+- Batch delete multiple lorebooks or entries
+
+**Create New Content**
+
+Want to add a new entry? Choose the target lorebook, entry position, and prompt order, then create.
+
+Faster way: click "create here" right next to the position group header. 
+
+Need a new lorebook? Create it quickly in the workspace.
+
+#### Keyword System
+
+Keywords determine when an entry gets triggered by the AI.
+
+Type `#keyword` and press Enter—primary keyword added. You can also set secondary keywords and define the logic relationship between them (AND, OR, etc.).
+
+#### Entry Controls
+
+Each entry has three quick toggles:
+- Enable/disable the entry
+- Switch between constant mode or keyword-triggered mode
+- Delete the entry
+
+#### Advanced Options
+
+Need finer control? The editor provides advanced options like non-reusable entries, prevent further recursion, and probability triggers.
+
+#### Understanding Position and Order
+
+**Position**: Determines which section of the AI prompt the entry appears in (like before character definitions or after example dialogue).
+
+**Prompt Order**: Within the same position, determines the sequence of entries.
+
+**Sidebar Order**: The order lorebooks appear in the sidebar is the actual order they trigger in the AI context.
+
+#### Search and Filter
+
+Search scans entry titles and all keywords.
+
+Pro tip: Expand the target lorebook in the sidebar first, then search—results will be more precise.
+
+#### Deleting
+
+The delete panel offers two very different options:
+
+- **Hide from workspace**: Only removes from view. The file stays completely intact.
+- **Delete lorebook file**: Permanently deletes the file. Can't be recovered, use cautiously.
+
 
 ---
 
-### 📜 The Three Laws of the Editor
+### ⚙️ Settings
+ 
+Adjust the editor to match your workflow:
+ 
+- Change UI language (中文 / English)
+- Adjust font size for a better reading experience
+- Set a mode to open at startup (Notes or Lorebook)
+- Set default recurrsion for new entries to speed up creation
+- Show or hide entry count for each lorebook
+ 
+### 🎨 Interface Design
+ 
+The interface stays minimal so you can focus on writing:
+ 
+**Theme Adaptation**: Automatically matches the colors and style of your customized SillyTavern theme.
+ 
+**Show on Demand**: Most buttons are hidden by default for a minimal UI.
+- Desktop: Hover to reveal action buttons
+- Mobile: Swipe on list items to reveal buttons
+ 
+**Folder Expansion**: Click folder headers to expand or collapse content.
 
-Know these before you begin.
+### 📱 Mobile Experience
+ 
+#### Gesture Controls
+ 
+- **Swipe Right**: Open the sidebar
+- **Swipe Left**: Close the sidebar
+- **Swipe on List Items**: Reveal action buttons
+ 
+### 💡 Shortcuts
+ 
+- Standard Markdown shortcuts supported (indent, bold, etc.)
+- Ctrl + mouse drag to resize the window
+- Type `#tag` or `#keyword` and press Enter for quick add
 
-1.  **This Is Not a Drill.** The plugin edits your real SillyTavern lorebook data directly. What you see is what you get.
-2.  **External Changes Are Respected.** If you edit a file outside the plugin, it will detect the change and prompt you to sync, not silently overwrite your work.
-3.  **Saving is a Whole-Book Affair.** Modifying a single entry saves the *entire lorebook*. This is intentional and matches SillyTavern's native behavior, ensuring data integrity.
 
+### 📜 Read Before Using
 
-
+Critical information for avoiding data loss:
+ 
+**This Isn't a Copy**: Every change you make to lorebooks writes directly to SillyTavern's lorebooks. What you see is what you get. Be sure to backup important files.
+ 
+ 
+ 
 </details>
+ 
 Current version: `0.1.4`
