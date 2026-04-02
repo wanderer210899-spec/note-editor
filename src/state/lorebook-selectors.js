@@ -40,18 +40,15 @@ export function buildLorebookSidebarModel(lorebookState, sessionState, uiState =
         const filteredGroup = filteredLorebooks.find((group) => group.lorebook.slotId === lorebook.slotId) ?? null;
         const filteredLorebookEntries = filteredGroup?.filteredEntries ?? [];
         const isActiveLorebook = lorebook.id === activeLorebookId;
-        const totalPages = Math.max(1, Math.ceil(filteredLorebookEntries.length / LOREBOOK_PAGE_SIZE));
-        const currentPage = clampPageNumber(pageByLorebookId[lorebook.id], totalPages);
-        const pageStartIndex = (currentPage - 1) * LOREBOOK_PAGE_SIZE;
-        const pageEndIndex = Math.min(pageStartIndex + LOREBOOK_PAGE_SIZE, filteredLorebookEntries.length);
-        const visibleLorebookEntries = filteredLorebookEntries.slice(pageStartIndex, pageEndIndex);
 
         const sections = buildLorebookSections(
             settings.positionOrder,
             settings.positionMeta,
-            visibleLorebookEntries,
+            filteredLorebookEntries,
             loadedLorebookState?.collapsedPositions ?? {},
             isActiveLorebook ? activeCurrentEntryId : null,
+            pageByLorebookId,
+            lorebook.id,
         );
 
         return {
@@ -62,12 +59,6 @@ export function buildLorebookSidebarModel(lorebookState, sessionState, uiState =
             searchResultCount: filteredLorebookEntries.length,
             sections,
             hasActiveEntry: isActiveLorebook && sections.some((section) => section.hasActiveEntry),
-            paging: buildLorebookPagingModel({
-                currentPage,
-                totalEntries: filteredLorebookEntries.length,
-                pageSize: LOREBOOK_PAGE_SIZE,
-                visibleCount: visibleLorebookEntries.length,
-            }),
         };
     });
 
@@ -156,7 +147,7 @@ function filterLorebookEntries(entries, search) {
     });
 }
 
-function buildLorebookSections(positionOrder = [], positionMeta = {}, entries = [], collapsedPositions = {}, currentEntryId = null) {
+function buildLorebookSections(positionOrder = [], positionMeta = {}, entries = [], collapsedPositions = {}, currentEntryId = null, pageByPositionKey = {}, lorebookId = '') {
     const positionOptions = buildPositionOptions(positionOrder, positionMeta);
     const sectionMap = new Map(
         (Array.isArray(positionOrder) ? positionOrder : []).map((positionKey) => [
@@ -187,10 +178,28 @@ function buildLorebookSections(positionOrder = [], positionMeta = {}, entries = 
 
     return [...sectionMap.values()]
         .filter((section) => section.entries.length > 0)
-        .map((section) => ({
-            ...section,
-            hasActiveEntry: section.entries.some((entry) => entry.isCurrent),
-        }));
+        .map((section) => {
+            const hasActiveEntry = section.entries.some((entry) => entry.isCurrent);
+            const pageKey = `${lorebookId}:${section.key}`;
+            const totalEntries = section.entries.length;
+            const totalPages = Math.max(1, Math.ceil(totalEntries / LOREBOOK_PAGE_SIZE));
+            const currentPage = clampPageNumber(pageByPositionKey[pageKey], totalPages);
+            const pageStart = (currentPage - 1) * LOREBOOK_PAGE_SIZE;
+            const visibleEntries = section.entries.slice(pageStart, Math.min(pageStart + LOREBOOK_PAGE_SIZE, totalEntries));
+
+            return {
+                ...section,
+                entries: visibleEntries,
+                hasActiveEntry,
+                paging: buildLorebookPagingModel({
+                    currentPage,
+                    totalEntries,
+                    pageSize: LOREBOOK_PAGE_SIZE,
+                    visibleCount: visibleEntries.length,
+                }),
+                pageKey,
+            };
+        });
 }
 
 function buildPositionList(positionOrder = [], positionMeta = {}) {

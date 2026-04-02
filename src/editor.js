@@ -19,7 +19,8 @@ import {
     normaliseDocumentSource,
 } from './document-source.js';
 import { t } from './i18n/index.js';
-import { getActiveCharacterSummary, runWithSuppressedToasts } from './services/st-context.js';
+import { getActiveCharacterSummary } from './services/st-context.js';
+import { runWithSuppressedToasts } from './ui-feedback.js';
 import {
     flushActiveDocumentAutosave,
     getActiveDocumentState,
@@ -51,13 +52,18 @@ import {
     updateLoreOverflowPanelPlacement,
     updateTagsMenuPlacement,
 } from './editor-toolbar.js';
-import { renderDocumentTermsMenu, renderLorebookMetadataTable } from './ui/editor-view.js';
+import {
+    renderDocumentSourceTerms,
+    renderDocumentTermsMenu,
+    renderLorebookMetadataTable,
+} from './ui/editor-view.js';
 
 const editorState = {
     rootEl: null,
     editorShellEl: null,
     sidebarRootEl: null,
     documentMetaEl: null,
+    sourceTermsEl: null,
     contentInputEl: null,
     previewEl: null,
     emptyStateEl: null,
@@ -88,6 +94,7 @@ const editorState = {
     loreMetadataExpanded: false,
     loreOverflowOpen: false,
     lastLoreMetaDocumentId: null,
+    lastLoreMetaRenderKey: '',
 };
 
 const boundToolbarButtons = new WeakSet();
@@ -181,6 +188,7 @@ function subscribeEditorState() {
             editorState.pendingTitleEditActivationId = null;
             editorState.loreMetadataExpanded = false;
             editorState.loreOverflowOpen = false;
+            editorState.lastLoreMetaRenderKey = '';
             editorState.documentState = getActiveDocumentState(sessionState);
             editorState.lastSidebarRenderKey = null;
             renderEditor(editorState.documentState, sessionState);
@@ -237,6 +245,12 @@ function bindEditorEvents() {
 
     editorState.documentMetaEl?.addEventListener('keydown', (event) => {
         handleLoreMetadataInputKeyDown(event);
+    });
+    editorState.documentMetaEl?.addEventListener('beforeinput', (event) => {
+        handleLoreMetadataBeforeInput(event);
+    });
+    editorState.documentMetaEl?.addEventListener('focusout', (event) => {
+        handleLoreMetadataFocusOut(event);
     });
 }
 
@@ -421,6 +435,15 @@ function renderEditor(documentState, sessionState) {
     editorState.emptyStateEl.hidden = hasCurrentNote;
     if (editorState.documentMetaEl) {
         editorState.documentMetaEl.hidden = !currentDocument || normaliseDocumentSource(currentDocument.source) !== DOCUMENT_SOURCE_LOREBOOK;
+    }
+    if (editorState.sourceTermsEl) {
+        const showSourceTerms = Boolean(currentDocument)
+            && !previewMode
+            && normaliseDocumentSource(currentDocument?.source) !== DOCUMENT_SOURCE_LOREBOOK;
+        editorState.sourceTermsEl.innerHTML = showSourceTerms
+            ? renderDocumentSourceTerms(currentDocument)
+            : '';
+        editorState.sourceTermsEl.hidden = !editorState.sourceTermsEl.innerHTML;
     }
     editorState.contentInputEl.hidden = !hasCurrentNote;
     editorState.previewEl.hidden = !hasCurrentNote;
@@ -613,6 +636,7 @@ function renderDocumentMeta(currentDocument = editorState.documentState?.current
         editorState.documentMetaEl.innerHTML = '';
         editorState.documentMetaEl.hidden = true;
         editorState.loreOverflowOpen = false;
+        editorState.lastLoreMetaRenderKey = '';
         return;
     }
 
@@ -620,13 +644,22 @@ function renderDocumentMeta(currentDocument = editorState.documentState?.current
         editorState.loreMetadataExpanded = false;
         editorState.loreOverflowOpen = false;
         editorState.lastLoreMetaDocumentId = currentDocument.id;
+        editorState.lastLoreMetaRenderKey = '';
     }
 
-    editorState.documentMetaEl.hidden = false;
-    editorState.documentMetaEl.innerHTML = renderLorebookMetadataTable(currentDocument, {
+    const nextLoreMetaRenderKey = buildLoreMetadataRenderKey(currentDocument, {
         isExpanded: editorState.loreMetadataExpanded,
         isOverflowOpen: editorState.loreOverflowOpen,
     });
+
+    editorState.documentMetaEl.hidden = false;
+    if (editorState.lastLoreMetaRenderKey !== nextLoreMetaRenderKey) {
+        editorState.documentMetaEl.innerHTML = renderLorebookMetadataTable(currentDocument, {
+            isExpanded: editorState.loreMetadataExpanded,
+            isOverflowOpen: editorState.loreOverflowOpen,
+        });
+        editorState.lastLoreMetaRenderKey = nextLoreMetaRenderKey;
+    }
 
     if (editorState.loreOverflowOpen) {
         requestAnimationFrame(() => {
@@ -801,6 +834,10 @@ function commitCurrentTermLine() {
 }
 
 function handleEditorChange(event) {
+    if (commitLoreMetadataKeywordInput(event.target)) {
+        return;
+    }
+
     if (event.target?.dataset?.action === 'set-document-secondary-logic') {
         runQuietMutation(() => setCurrentDocumentSecondaryTermLogic(event.target.value, editorState.documentState?.currentDocument?.source));
         editorState.loreMetadataExpanded = true;
@@ -848,9 +885,33 @@ function handleLoreMetadataInputKeyDown(event) {
     }
 
     event.preventDefault();
-    const value = String(event.target.value ?? '').trim();
+    commitLoreMetadataKeywordInput(event.target);
+    return true;
+}
+
+function handleLoreMetadataBeforeInput(event) {
+    if (!isLoreMetadataKeywordInput(event.target) || event.inputType !== 'insertLineBreak') {
+        return false;
+    }
+
+    event.preventDefault();
+    commitLoreMetadataKeywordInput(event.target);
+    return true;
+}
+
+function handleLoreMetadataFocusOut(event) {
+    commitLoreMetadataKeywordInput(event.target);
+}
+
+function commitLoreMetadataKeywordInput(input) {
+    if (!isLoreMetadataKeywordInput(input)) {
+        return false;
+    }
+
+    const action = String(input.dataset.action ?? '').trim();
+    const value = String(input.value ?? '').trim();
     if (!value) {
-        return true;
+        return false;
     }
 
     if (action === 'add-document-primary-keyword') {
@@ -860,9 +921,38 @@ function handleLoreMetadataInputKeyDown(event) {
     }
 
     editorState.loreMetadataExpanded = true;
-    event.target.value = '';
+    input.value = '';
     renderDocumentMeta(editorState.documentState?.currentDocument ?? null);
     return true;
+}
+
+function isLoreMetadataKeywordInput(target) {
+    if (!(target instanceof HTMLInputElement)) {
+        return false;
+    }
+
+    const action = String(target.dataset.action ?? '').trim();
+    return action === 'add-document-primary-keyword' || action === 'add-document-secondary-keyword';
+}
+
+function buildLoreMetadataRenderKey(currentDocument, {
+    isExpanded = false,
+    isOverflowOpen = false,
+} = {}) {
+    const meta = currentDocument?.meta ?? {};
+    const nativeTraits = meta.nativeTraits ?? {};
+
+    return [
+        currentDocument?.id ?? '',
+        isExpanded ? 'expanded' : 'collapsed',
+        isOverflowOpen ? 'overflow-open' : 'overflow-closed',
+        (Array.isArray(meta.keywords) ? meta.keywords : []).join('\u0001'),
+        (Array.isArray(meta.secondaryKeywords) ? meta.secondaryKeywords : []).join('\u0001'),
+        String(meta.secondaryKeywordLogic ?? ''),
+        String(Boolean(nativeTraits.excludeRecursion)),
+        String(Boolean(nativeTraits.preventRecursion)),
+        String(Number.isFinite(Number(nativeTraits.probability)) ? Number(nativeTraits.probability) : 100),
+    ].join('|');
 }
 
 function schedulePendingTitleEdit(currentDocument) {

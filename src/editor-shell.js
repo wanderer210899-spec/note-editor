@@ -24,6 +24,7 @@ export function renderEditorShell() {
 
                 <div class="ne-editor-stage">
                     <section class="ne-document-meta" id="ne-document-meta" hidden></section>
+                    <div class="ne-document-source-terms" id="ne-document-source-terms" hidden></div>
 
                     <label class="ne-visually-hidden" for="ne-note-content-input">${t('editorShell.contentLabel')}</label>
                     <textarea
@@ -49,6 +50,7 @@ export function getEditorRefs(root) {
         editorShellEl: root.querySelector('.ne-editor-shell'),
         sidebarRootEl: root.querySelector('#ne-sidebar-root'),
         documentMetaEl: root.querySelector('#ne-document-meta'),
+        sourceTermsEl: root.querySelector('#ne-document-source-terms'),
         contentInputEl: root.querySelector('#ne-note-content-input'),
         previewEl: root.querySelector('#ne-note-preview'),
         emptyStateEl: root.querySelector('#ne-empty-state'),

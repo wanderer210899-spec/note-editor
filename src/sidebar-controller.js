@@ -130,6 +130,7 @@ export function renderSidebarController() {
         : null;
     const model = {
         ...rawModel,
+        isMobile: isMobileViewport(),
         settingsPanelOpen: uiState.settingsPanelOpen,
         settingsState: getSettingsState(),
         noteTransferModel,
@@ -495,6 +496,18 @@ function handleSidebarChange(event) {
 
     if (event.target?.dataset?.loreEntryCreateField === 'positionKey') {
         uiState.loreEntryCreationPositionKey = event.target.value;
+        return;
+    }
+
+    const bulkToggleAction = event.target?.dataset?.bulkToggleAction;
+    if (bulkToggleAction && handleSidebarAction(bulkToggleAction, event.target, {
+        createNote: createNoteFromSidebar,
+        getUiState: () => uiState,
+        renderSidebarController,
+        resetSidebarControllerState,
+        closeSidebar,
+        applySearchTagSuggestion,
+    })) {
         return;
     }
 

@@ -17,13 +17,20 @@ import {
     keepPanelReachable,
     rememberWindowedBounds,
 } from './panel-bounds.js';
-import { initPanelDrag, initPanelResize, initPanelWheelResize } from './panel-pointer.js';
+import {
+    getTrackedTouch,
+    initPanelDrag,
+    initPanelResize,
+    initPanelWheelResize,
+    shouldUseMobileTouchFallback,
+    shouldUseMobileTouchFallbackForPointer,
+} from './panel-pointer.js';
 import { t } from './i18n/index.js';
-import { refreshLorebookWorkspace } from './state/lorebook-store.js';
+import { setLorebookSyncActive } from './state/lorebook-store.js';
 import { getSettingsState, subscribePanelFontScale, subscribeSettings } from './state/settings-store.js';
 import { getSessionState, setActiveSource, subscribeSession } from './state/session-store.js';
 import { mountToolbar, renderToolbarOverflowMenu } from './ui/toolbar-view.js';
-import { setElementStyleProperty, setPanelBounds } from './util.js';
+import { isMobileViewport, setElementStyleProperty, setPanelBounds } from './util.js';
 
 const CLASS_OPEN = 'ne-panel--open';
 const CLASS_FULLSCREEN = 'ne-panel--fullscreen';
@@ -33,6 +40,13 @@ const STORAGE_WINDOW_BOUNDS = 'note-editor.windowed-bounds.v1';
 const TOOLBAR_TITLE_MIN_WIDTH = 140;
 const TOOLBAR_COMPACT_TITLE_MIN_WIDTH = 168;
 const TOOLBAR_OPTIONAL_ACTIONS = ['tags', 'preview', 'source'];
+const MOBILE_SIDEBAR_OPEN_ZONE_MIN = 64;
+const MOBILE_SIDEBAR_OPEN_ZONE_MAX = 128;
+const MOBILE_SIDEBAR_CLOSE_ZONE_MIN = 72;
+const MOBILE_SIDEBAR_CLOSE_ZONE_MAX = 144;
+const MOBILE_SIDEBAR_GESTURE_START_DISTANCE = 8;
+const MOBILE_SIDEBAR_GESTURE_TRIGGER_DISTANCE = 36;
+const MOBILE_NATIVE_EDGE_EXCLUSION = 20;
 
 const panelState = {
     panelEl: null,
@@ -53,6 +67,7 @@ const panelState = {
     toolbarLayoutFrame: 0,
     toolbarLayoutObserver: null,
     lastSettingsState: null,
+    mobileSidebarGesture: null,
 };
 
 let viewportEventsBound = false;
@@ -109,9 +124,7 @@ export function openPanel() {
             setActiveSource(defaultSource);
         }
     }
-    if (getSessionState().activeSource === 'lorebook') {
-        void refreshLorebookWorkspace();
-    }
+    syncLorebookRuntimeState(getSessionState().activeSource, { refresh: true });
     updateToolbarState();
 }
 
@@ -121,6 +134,7 @@ export function closePanel() {
     }
 
     flushEditorState();
+    syncLorebookRuntimeState(getSessionState().activeSource, { open: false });
     panelState.toolbar.menu = false;
     setToolbarOverflowOpen(false);
     panelState.panelEl.classList.remove(CLASS_OPEN);
@@ -146,6 +160,10 @@ function bindPanelEvents() {
     });
     panelState.panelEl?.addEventListener('ne:toolbar-layout-update', scheduleToolbarLayout);
     panelState.panelEl?.addEventListener('pointerdown', handlePanelPointerDown);
+    panelState.panelEl?.addEventListener('pointermove', handlePanelPointerMove);
+    panelState.panelEl?.addEventListener('pointerup', handlePanelPointerUp);
+    panelState.panelEl?.addEventListener('pointercancel', handlePanelPointerCancel);
+    panelState.panelEl?.addEventListener('touchstart', handlePanelTouchStart, { passive: false });
 
     initPanelResize(panelState, {
         onExitFullscreen: exitFullscreen,
@@ -210,6 +228,7 @@ function syncToolbarSource(sessionState, { forceRemount = false } = {}) {
         source: nextSource,
     });
     panelState.toolbarSource = nextSource;
+    syncLorebookRuntimeState(nextSource, { refresh: nextSource === 'lorebook' });
     panelState.toolbar.hiddenActions = [];
     panelState.toolbar.compact = false;
     panelState.toolbar.overflowOpen = false;
@@ -367,9 +386,12 @@ function handleSourceSwitch(event) {
 
     flushEditorState();
     setActiveSource(nextSource);
-    if (nextSource === 'lorebook') {
-        void refreshLorebookWorkspace();
-    }
+    syncLorebookRuntimeState(nextSource, { refresh: nextSource === 'lorebook' });
+}
+
+function syncLorebookRuntimeState(source, { open = panelState.panelEl?.classList.contains(CLASS_OPEN) ?? false, refresh = false } = {}) {
+    const lorebookActive = Boolean(open) && source === 'lorebook';
+    setLorebookSyncActive(lorebookActive, { refresh: lorebookActive && refresh });
 }
 
 function handleViewportResize() {
@@ -402,6 +424,323 @@ function handlePanelPointerDown(event) {
     if (panelState.toolbar.overflowOpen && overflowWrap && !overflowWrap.contains(target)) {
         setToolbarOverflowOpen(false);
     }
+
+    if (shouldUseMobileTouchFallbackForPointer(event)) {
+        return;
+    }
+
+    beginMobileSidebarGesture(event, target);
+}
+
+function handlePanelPointerMove(event) {
+    const gesture = panelState.mobileSidebarGesture;
+    if (
+        !gesture
+        || gesture.handled
+        || gesture.inputType !== 'pointer'
+        || event.pointerId !== gesture.pointerId
+    ) {
+        return;
+    }
+
+    updateMobileSidebarGesture(gesture, event.clientX, event.clientY, event);
+}
+
+function handlePanelPointerUp(event) {
+    clearMobileSidebarGesture(event);
+}
+
+function handlePanelPointerCancel(event) {
+    clearMobileSidebarGesture(event);
+}
+
+function beginMobileSidebarGesture(event, target) {
+    clearMobileSidebarGesture();
+
+    if (!shouldUseMobileSidebarGesture(event)) {
+        return;
+    }
+
+    const gestureMode = getMobileSidebarGestureMode(event, target);
+    if (!gestureMode) {
+        return;
+    }
+
+    panelState.mobileSidebarGesture = {
+        inputType: 'pointer',
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        axis: '',
+        handled: false,
+        mode: gestureMode,
+    };
+
+    try {
+        panelState.panelEl?.setPointerCapture?.(event.pointerId);
+    } catch (error) {
+        if (error?.name !== 'NotFoundError') {
+            console.warn('[NoteEditor] Pointer capture failed on panel sidebar gesture start.', error);
+        }
+    }
+}
+
+function handlePanelTouchStart(event) {
+    if (!shouldUseMobileSidebarTouchGesture(event)) {
+        return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof Element)) {
+        return;
+    }
+
+    const touch = getTrackedTouch(event);
+    if (!touch) {
+        return;
+    }
+
+    clearMobileSidebarGesture();
+
+    const gestureMode = getMobileSidebarGestureMode(touch, target);
+    if (!gestureMode) {
+        return;
+    }
+
+    let activeTouchId = touch.identifier;
+    const moveTouchGesture = (moveEvent) => {
+        const activeTouch = getTrackedTouch(moveEvent, activeTouchId);
+        if (!activeTouch) {
+            return;
+        }
+
+        const gesture = panelState.mobileSidebarGesture;
+        if (!gesture || gesture.inputType !== 'touch' || gesture.touchId !== activeTouchId) {
+            return;
+        }
+
+        updateMobileSidebarGesture(gesture, activeTouch.clientX, activeTouch.clientY, moveEvent);
+    };
+    const endTouchGesture = (endEvent) => {
+        const activeTouch = getTrackedTouch(endEvent, activeTouchId, { includeChangedTouches: true });
+        if (!activeTouch) {
+            return;
+        }
+
+        activeTouchId = null;
+        document.removeEventListener('touchmove', moveTouchGesture);
+        document.removeEventListener('touchend', endTouchGesture);
+        document.removeEventListener('touchcancel', endTouchGesture);
+        clearMobileSidebarGesture();
+    };
+
+    panelState.mobileSidebarGesture = {
+        inputType: 'touch',
+        touchId: activeTouchId,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        axis: '',
+        handled: false,
+        mode: gestureMode,
+    };
+
+    document.addEventListener('touchmove', moveTouchGesture, { passive: false });
+    document.addEventListener('touchend', endTouchGesture);
+    document.addEventListener('touchcancel', endTouchGesture);
+}
+
+function clearMobileSidebarGesture(event = null) {
+    if (!panelState.mobileSidebarGesture) {
+        return;
+    }
+
+    const gesture = panelState.mobileSidebarGesture;
+    if (gesture.inputType === 'pointer') {
+        const pointerId = event?.pointerId ?? gesture.pointerId;
+        try {
+            panelState.panelEl?.releasePointerCapture?.(pointerId);
+        } catch (error) {
+            if (error?.name !== 'NotFoundError') {
+                console.warn('[NoteEditor] Pointer capture release failed on panel sidebar gesture end.', error);
+            }
+        }
+    }
+
+    panelState.mobileSidebarGesture = null;
+}
+
+function shouldUseMobileSidebarGesture(event) {
+    return Boolean(
+        panelState.panelEl?.classList.contains(CLASS_OPEN)
+        && isMobileViewport()
+        && event.isPrimary
+        && event.pointerType === 'touch'
+        && !shouldUseMobileTouchFallbackForPointer(event)
+    );
+}
+
+function shouldUseMobileSidebarTouchGesture(event) {
+    return Boolean(
+        panelState.panelEl?.classList.contains(CLASS_OPEN)
+        && isMobileViewport()
+        && shouldUseMobileTouchFallback()
+        && event.touches.length === 1
+    );
+}
+
+function updateMobileSidebarGesture(gesture, clientX, clientY, event) {
+    const deltaX = clientX - gesture.startX;
+    const deltaY = clientY - gesture.startY;
+    const distance = Math.hypot(deltaX, deltaY);
+
+    if (!gesture.axis) {
+        if (distance < MOBILE_SIDEBAR_GESTURE_START_DISTANCE) {
+            return;
+        }
+
+        gesture.axis = Math.abs(deltaX) > Math.abs(deltaY) ? 'x' : 'y';
+        if (gesture.axis !== 'x') {
+            gesture.handled = true;
+            return;
+        }
+        // axis is 'x' — fall through to process this frame immediately
+    }
+
+    if (gesture.axis !== 'x') {
+        return;
+    }
+
+    const movingTowardToggle = gesture.mode === 'open' ? deltaX > 0 : deltaX < 0;
+    if (!movingTowardToggle) {
+        return;
+    }
+
+    // Prevent native scroll / back-swipe as soon as we know we own this horizontal gesture.
+    // This must happen before the threshold check so the browser doesn't take over mid-swipe.
+    if (event?.cancelable) {
+        event.preventDefault();
+    }
+
+    const passedThreshold = gesture.mode === 'open'
+        ? deltaX >= MOBILE_SIDEBAR_GESTURE_TRIGGER_DISTANCE
+        : deltaX <= -MOBILE_SIDEBAR_GESTURE_TRIGGER_DISTANCE;
+
+    if (!passedThreshold) {
+        return;
+    }
+
+    gesture.handled = true;
+    setMenuOpen(gesture.mode === 'open');
+}
+
+function getMobileSidebarGestureMode(event, target) {
+    if (panelState.toolbar.menu) {
+        return shouldStartSidebarCloseGesture(event, target) ? 'close' : '';
+    }
+
+    return shouldStartSidebarOpenGesture(event, target) ? 'open' : '';
+}
+
+function shouldStartSidebarOpenGesture(event, target) {
+    const swipeArea = target.closest('.ne-editor-shell, .ne-editor-stage, #ne-canvas');
+    if (!swipeArea) {
+        return false;
+    }
+
+    const swipeAreaRect = swipeArea.getBoundingClientRect();
+
+    // Do not start over the OS-reserved back-gesture strip at the viewport left edge.
+    if (event.clientX < MOBILE_NATIVE_EDGE_EXCLUSION) {
+        return false;
+    }
+
+    const openZoneWidth = getMobileSidebarGestureZoneWidth(
+        swipeAreaRect.width,
+        MOBILE_SIDEBAR_OPEN_ZONE_MIN,
+        MOBILE_SIDEBAR_OPEN_ZONE_MAX,
+        0.28,
+    );
+    const startsFromEdge = event.clientX <= swipeAreaRect.left + openZoneWidth;
+    if (!startsFromEdge) {
+        return false;
+    }
+
+    if (
+        target.closest('.ne-sidebar')
+        || target.closest('.ne-toolbar')
+        || target.closest('.ne-panel__resize-handle')
+    ) {
+        return false;
+    }
+
+    if (isSidebarGestureInteractiveTarget(target) && !target.closest('.ne-note-content-input')) {
+        return false;
+    }
+
+    return true;
+}
+
+function shouldStartSidebarCloseGesture(event, target) {
+    const sidebar = target.closest('.ne-sidebar');
+    if (!sidebar) {
+        return false;
+    }
+
+    const sidebarRect = sidebar.getBoundingClientRect();
+    const closeZoneWidth = getMobileSidebarGestureZoneWidth(
+        sidebarRect.width,
+        MOBILE_SIDEBAR_CLOSE_ZONE_MIN,
+        MOBILE_SIDEBAR_CLOSE_ZONE_MAX,
+        0.26,
+    );
+    const startsFromEdge = event.clientX >= sidebarRect.right - closeZoneWidth;
+    if (!startsFromEdge) {
+        return false;
+    }
+
+    return !isSidebarGestureCloseBlockedTarget(target);
+}
+
+function isSidebarGestureInteractiveTarget(target) {
+    return Boolean(target.closest([
+        'button',
+        'a',
+        'input',
+        'textarea',
+        'select',
+        'label',
+        '[role="button"]',
+        '[contenteditable="true"]',
+        '.ne-tags-menu',
+        '.ne-toolbar__overflow-menu',
+        '.ne-lore-meta__overflow-panel',
+    ].join(', ')));
+}
+
+function isSidebarGestureCloseBlockedTarget(target) {
+    return Boolean(target.closest([
+        '.ne-sidebar__topbar',
+        '.ne-sidebar__tools',
+        '.ne-sidebar__search',
+        '.ne-sidebar__filters',
+        '.ne-row-actions',
+        '.ne-delete-panel',
+        '.ne-settings-panel',
+        '.ne-sidebar-dialog',
+        '.ne-lore-entry-dialog',
+        '.ne-tags-menu',
+        '.ne-toolbar__overflow-menu',
+        '.ne-lore-meta__overflow-panel',
+        'input',
+        'textarea',
+        'select',
+        'label',
+        '[contenteditable="true"]',
+    ].join(', ')));
+}
+
+function getMobileSidebarGestureZoneWidth(width, min, max, ratio) {
+    return Math.min(Math.max(width * ratio, min), max);
 }
 
 function observeToolbarLayout() {
@@ -571,9 +910,7 @@ function handleToolbarOverflowMenuClick(event) {
             }
             flushEditorState();
             setActiveSource(nextSource);
-            if (nextSource === 'lorebook') {
-                void refreshLorebookWorkspace();
-            }
+            syncLorebookRuntimeState(nextSource, { refresh: nextSource === 'lorebook' });
             break;
         }
         default:

@@ -61,7 +61,7 @@ export function renderDocumentTermsMenu(documentModel, { suggestedTerm = '', sou
     `;
 }
 
-export function renderDocumentPreviewTerms(documentModel) {
+export function renderDocumentSourceTerms(documentModel) {
     if (normaliseDocumentSource(documentModel?.source) === 'lorebook') {
         return '';
     }
@@ -74,7 +74,7 @@ export function renderDocumentPreviewTerms(documentModel) {
     }
 
     return `
-        <div class="ne-note-preview__tags">
+        <div class="ne-document-source-terms__list">
             ${terms.map((term) => {
                 const canActivate = termState.activationMode === 'sidebar-filter';
                 return `
@@ -216,6 +216,7 @@ function renderLorebookMetadataRow(label, keywords, {
                     data-action="${escapeHtml(inputAction)}"
                     placeholder="${escapeHtml(emptyHint)}"
                     autocomplete="off"
+                    enterkeyhint="done"
                     spellcheck="false"
                 />
             </div>

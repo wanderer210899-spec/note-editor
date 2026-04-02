@@ -716,11 +716,11 @@ function setResizeHint(panel, zone = '') {
     panel.dataset.resizeZone = zone;
 }
 
-function shouldUseMobileTouchFallback() {
+export function shouldUseMobileTouchFallback() {
     return window.matchMedia('(pointer: coarse)').matches || (supportsTouchInput() && isMobileViewport());
 }
 
-function shouldUseMobileTouchFallbackForPointer(event) {
+export function shouldUseMobileTouchFallbackForPointer(event) {
     return event?.pointerType === 'touch' || shouldUseMobileTouchFallback();
 }
 
@@ -728,7 +728,7 @@ function supportsTouchInput() {
     return navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
 }
 
-function getTrackedTouch(event, identifier = null, { includeChangedTouches = false } = {}) {
+export function getTrackedTouch(event, identifier = null, { includeChangedTouches = false } = {}) {
     const touchLists = [];
     if (event?.touches) {
         touchLists.push(event.touches);

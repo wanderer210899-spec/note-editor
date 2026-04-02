@@ -1,62 +1,94 @@
 // src/services/st-context.js
-// Responsible for: all access to SillyTavern runtime context used by the plugin.
+// Responsible for: the single SillyTavern integration gateway used by the plugin.
+
+const WORLDINFO_UPDATED_EVENT = 'worldinfo_updated';
+const WORLDINFO_MODULE_PATH = '/scripts/world-info.js';
+const WORLDINFO_GET_URL = '/api/worldinfo/get';
+const SETTINGS_GET_URL = '/api/settings/get';
+
+const WORLDINFO_CAPABILITIES = {
+    load: {
+        contextNames: ['loadWorldInfo'],
+        windowNames: ['loadWorldInfo'],
+        moduleNames: ['loadWorldInfo'],
+    },
+    save: {
+        contextNames: ['saveWorldInfo'],
+        windowNames: ['saveWorldInfo'],
+        moduleNames: ['saveWorldInfo'],
+    },
+    create: {
+        contextNames: ['createNewWorldInfo'],
+        windowNames: ['createNewWorldInfo'],
+        moduleNames: ['createNewWorldInfo'],
+    },
+    delete: {
+        contextNames: ['deleteWorldInfo'],
+        windowNames: ['deleteWorldInfo'],
+        moduleNames: ['deleteWorldInfo'],
+    },
+    reloadEditor: {
+        contextNames: ['reloadWorldInfoEditor'],
+        windowNames: ['reloadWorldInfoEditor'],
+        moduleNames: ['reloadEditor'],
+    },
+    updateList: {
+        contextNames: ['updateWorldInfoList'],
+        windowNames: ['updateWorldInfoList'],
+        moduleNames: ['updateWorldInfoList'],
+    },
+    createEntry: {
+        contextNames: ['createWorldInfoEntry'],
+        windowNames: ['createWorldInfoEntry'],
+        moduleNames: ['createWorldInfoEntry'],
+    },
+};
+
+let cachedWorldInfoModule = null;
+let worldInfoModulePromise = null;
 
 function getRawContext() {
     return window.SillyTavern?.getContext?.() ?? null;
 }
 
-const WORLDINFO_UPDATED_EVENT = 'worldinfo_updated';
+export function flushExtensionSettings() {
+    const saver = getRawContext()?.saveSettingsDebounced;
+    if (typeof saver !== 'function') {
+        return false;
+    }
 
-export function getSillyTavernContext() {
-    return getRawContext();
+    saver();
+    return true;
 }
 
-export function saveSillyTavernSettings() {
-    getRawContext()?.saveSettingsDebounced?.();
+export function readExtensionSetting(key) {
+    const trimmedKey = firstNonEmptyString(key);
+    if (!trimmedKey) {
+        return null;
+    }
+
+    const extensionSettings = getRawContext()?.extensionSettings;
+    if (!extensionSettings || typeof extensionSettings !== 'object') {
+        return null;
+    }
+
+    return extensionSettings[trimmedKey] ?? null;
 }
 
-export function runWithSuppressedToasts(task, { restoreDelayMs = 900 } = {}) {
-    if (typeof task !== 'function') {
-        return undefined;
+export function writeExtensionSetting(key, value) {
+    const trimmedKey = firstNonEmptyString(key);
+    if (!trimmedKey) {
+        return false;
     }
 
-    const toastr = window.toastr;
-    if (!toastr) {
-        return task();
+    const context = getRawContext();
+    if (!context) {
+        return false;
     }
 
-    const methodNames = ['success', 'info', 'warning', 'error'];
-    const originals = new Map();
-    methodNames.forEach((name) => {
-        if (typeof toastr[name] === 'function') {
-            originals.set(name, toastr[name]);
-            toastr[name] = () => undefined;
-        }
-    });
-
-    const restore = () => {
-        originals.forEach((original, name) => {
-            toastr[name] = original;
-        });
-        clearVisibleToasts();
-    };
-
-    clearVisibleToasts();
-
-    try {
-        const result = task();
-        if (result && typeof result.finally === 'function') {
-            return result.finally(() => {
-                window.setTimeout(restore, restoreDelayMs);
-            });
-        }
-
-        window.setTimeout(restore, restoreDelayMs);
-        return result;
-    } catch (error) {
-        restore();
-        throw error;
-    }
+    context.extensionSettings ??= {};
+    context.extensionSettings[trimmedKey] = value;
+    return true;
 }
 
 export function getActiveCharacterSummary() {
@@ -83,13 +115,13 @@ export function getActiveCharacterRecord() {
         context.character_name,
         context.chatMetadata?.character_name,
         context.chat_metadata?.character_name,
-        context.name2
+        context.name2,
     );
     const directId = firstNonEmptyString(
         context.characterId,
         context.character_id,
         context.chatMetadata?.character_id,
-        context.chat_metadata?.character_id
+        context.chat_metadata?.character_id,
     );
     const characters = Array.isArray(context.characters) ? context.characters : [];
     const matchedCharacter = findCharacterMatch(characters, directId, directName, context.avatar_url);
@@ -113,10 +145,13 @@ export function getActiveCharacterRecord() {
 }
 
 export async function listAvailableLorebookNames() {
-    const context = getRawContext();
-    await context?.updateWorldInfoList?.();
+    await invokeWorldInfoCapability('updateList', {
+        silentMissing: true,
+        silentFailure: true,
+    });
 
     const settingsLorebookNames = await fetchLorebookNamesFromSettingsApi();
+    const context = getRawContext();
 
     return uniqueStrings([
         ...settingsLorebookNames,
@@ -144,7 +179,7 @@ export function resolveActiveCharacterLorebookLinks() {
     const worldInfoState = getWorldInfoState();
     const primaryName = firstNonEmptyString(
         activeCharacter?.rawCharacter?.data?.extensions?.world,
-        activeCharacter?.primaryLorebookName
+        activeCharacter?.primaryLorebookName,
     );
     const fileName = firstNonEmptyString(activeCharacter?.fileName, activeCharacter?.avatar);
     const charLoreValue = fileName ? worldInfoState?.charLore?.[fileName] : null;
@@ -162,15 +197,17 @@ export async function loadLorebookByName(name) {
         return null;
     }
 
-    const context = getRawContext();
-    if (typeof context?.loadWorldInfo !== 'function') {
+    const result = await invokeWorldInfoCapability('load', {
+        args: [trimmedName],
+        missingMessage: 'Could not load lorebook: no compatible loadWorldInfo function is available.',
+        failureMessage: 'Failed to load lorebook.',
+        silentMissing: true,
+    });
+    if (!result.ok) {
         return null;
     }
 
-    const loaded = await context.loadWorldInfo(trimmedName);
-    return loaded && typeof loaded === 'object'
-        ? loaded
-        : { entries: {} };
+    return normalizeLorebookPayload(result.value);
 }
 
 export function invalidateLorebookCache(name) {
@@ -203,20 +240,13 @@ export async function loadFreshLorebookByName(name) {
 
     invalidateLorebookCache(trimmedName);
 
-    const response = await fetch('/api/worldinfo/get', {
-        method: 'POST',
-        headers: getLorebookRequestHeaders(),
-        body: JSON.stringify({ name: trimmedName }),
-        cache: 'no-cache',
-    });
-    if (!response.ok) {
+    try {
+        const loaded = await postJson(WORLDINFO_GET_URL, { name: trimmedName }, { cache: 'no-cache' });
+        return normalizeLorebookPayload(loaded);
+    } catch (error) {
+        console.warn('[NoteEditor] Failed to load fresh lorebook data.', error);
         return null;
     }
-
-    const loaded = await response.json();
-    return loaded && typeof loaded === 'object'
-        ? loaded
-        : { entries: {} };
 }
 
 export async function saveLorebookByName(name, data, { immediately = false, refreshEditor = false } = {}) {
@@ -225,15 +255,19 @@ export async function saveLorebookByName(name, data, { immediately = false, refr
         return false;
     }
 
-    const context = getRawContext();
-    if (typeof context?.saveWorldInfo !== 'function') {
+    const result = await invokeWorldInfoCapability('save', {
+        args: [trimmedName, data, Boolean(immediately)],
+        missingMessage: 'Could not save lorebook: no compatible saveWorldInfo function is available.',
+        failureMessage: 'Failed to save lorebook.',
+    });
+    if (!result.ok) {
         return false;
     }
 
-    await context.saveWorldInfo(trimmedName, data, Boolean(immediately));
     if (refreshEditor) {
-        syncLorebookEditor(trimmedName);
+        await syncLorebookEditor(trimmedName);
     }
+
     return true;
 }
 
@@ -243,24 +277,12 @@ export async function deleteLorebookFile(name) {
         return false;
     }
 
-    const context = getRawContext();
-    const fn = [
-        context?.deleteWorldInfo,
-        window.deleteWorldInfo,
-    ].find((candidate) => typeof candidate === 'function');
-
-    if (!fn) {
-        console.warn('[NoteEditor] deleteWorldInfo is not available in this version of SillyTavern.');
-        return false;
-    }
-
-    try {
-        await fn(trimmedName);
-        return true;
-    } catch (error) {
-        console.warn('[NoteEditor] Failed to delete lorebook file.', error);
-        return false;
-    }
+    const result = await invokeWorldInfoCapability('delete', {
+        args: [trimmedName],
+        missingMessage: 'Could not delete lorebook file: no compatible deleteWorldInfo function is available.',
+        failureMessage: 'Failed to delete lorebook file.',
+    });
+    return result.ok;
 }
 
 export async function createLorebookFile(name) {
@@ -269,29 +291,27 @@ export async function createLorebookFile(name) {
         return false;
     }
 
-    const context = getRawContext();
-    const factory = [
-        context?.createNewWorldInfo,
-        window.createNewWorldInfo,
-    ].find((candidate) => typeof candidate === 'function');
-
-    try {
-        if (factory) {
-            await factory(trimmedName, { interactive: false });
-            return true;
-        }
-
-        const created = await createLorebookFileFallback(trimmedName, context);
-        if (!created) {
-            console.warn('[NoteEditor] Could not create lorebook file: createNewWorldInfo is unavailable and the saveWorldInfo fallback could not create a new file.');
-            return false;
-        }
-
+    const result = await invokeWorldInfoCapability('create', {
+        args: [trimmedName, { interactive: false }],
+        missingMessage: 'Could not create lorebook file: no compatible createNewWorldInfo function is available.',
+        failureMessage: 'Failed to create lorebook file.',
+        silentMissing: true,
+    });
+    if (result.ok) {
         return true;
-    } catch (error) {
-        console.warn('[NoteEditor] Failed to create lorebook file.', error);
+    }
+
+    if (result.reason !== 'missing') {
         return false;
     }
+
+    const created = await createLorebookFileFallback(trimmedName);
+    if (!created) {
+        console.warn('[NoteEditor] Could not create lorebook file: createNewWorldInfo is unavailable and the saveWorldInfo fallback could not create a new file.');
+        return false;
+    }
+
+    return true;
 }
 
 export function createNativeLorebookEntry(name, data) {
@@ -300,18 +320,13 @@ export function createNativeLorebookEntry(name, data) {
         return null;
     }
 
-    const context = getRawContext();
-    const factory = [
-        context?.createWorldInfoEntry,
-        window.createWorldInfoEntry,
-    ].find((candidate) => typeof candidate === 'function');
-
-    if (!factory) {
+    const resolved = resolveWorldInfoCapabilitySync('createEntry');
+    if (!resolved) {
         return null;
     }
 
     try {
-        const created = factory(trimmedName, data);
+        const created = resolved.fn(trimmedName, data);
         return created && typeof created === 'object'
             ? created
             : null;
@@ -329,29 +344,24 @@ export async function reloadLorebookByName(name, { refreshEditor = true } = {}) 
 
     const loaded = await loadFreshLorebookByName(trimmedName);
     if (refreshEditor) {
-        syncLorebookEditor(trimmedName);
+        await syncLorebookEditor(trimmedName);
     }
     return loaded;
 }
 
-export function syncLorebookEditor(name, { loadIfNotSelected = false } = {}) {
+export async function syncLorebookEditor(name, { loadIfNotSelected = false } = {}) {
     const trimmedName = firstNonEmptyString(name);
     if (!trimmedName) {
         return false;
     }
 
-    const context = getRawContext();
-    if (typeof context?.reloadWorldInfoEditor !== 'function') {
-        return false;
-    }
-
-    try {
-        context.reloadWorldInfoEditor(trimmedName, Boolean(loadIfNotSelected));
-        return true;
-    } catch (error) {
-        console.warn('[NoteEditor] Lorebook editor refresh failed.', error);
-        return false;
-    }
+    const result = await invokeWorldInfoCapability('reloadEditor', {
+        args: [trimmedName, Boolean(loadIfNotSelected)],
+        missingMessage: 'Could not refresh the lorebook editor: no compatible reload function is available.',
+        failureMessage: 'Lorebook editor refresh failed.',
+        silentMissing: true,
+    });
+    return result.ok;
 }
 
 export function subscribeToLorebookUpdates(listener) {
@@ -429,6 +439,149 @@ export function subscribeToCharacterContextUpdates(listener) {
     };
 }
 
+async function invokeWorldInfoCapability(capabilityName, {
+    args = [],
+    missingMessage = '',
+    failureMessage = '',
+    silentMissing = false,
+    silentFailure = false,
+} = {}) {
+    const resolved = await resolveWorldInfoCapability(capabilityName);
+    if (!resolved) {
+        if (!silentMissing && missingMessage) {
+            console.warn(`[NoteEditor] ${missingMessage}`);
+        }
+
+        return {
+            ok: false,
+            reason: 'missing',
+            source: null,
+            value: undefined,
+        };
+    }
+
+    try {
+        return {
+            ok: true,
+            reason: null,
+            source: resolved.source,
+            value: await resolved.fn(...args),
+        };
+    } catch (error) {
+        if (!silentFailure && failureMessage) {
+            console.warn(`[NoteEditor] ${failureMessage}`, error);
+        }
+
+        return {
+            ok: false,
+            reason: 'error',
+            source: resolved.source,
+            value: undefined,
+        };
+    }
+}
+
+async function resolveWorldInfoCapability(capabilityName) {
+    const resolved = resolveWorldInfoCapabilitySync(capabilityName);
+    if (resolved) {
+        return resolved;
+    }
+
+    const config = WORLDINFO_CAPABILITIES[capabilityName];
+    if (!config?.moduleNames?.length) {
+        return null;
+    }
+
+    try {
+        const module = await getWorldInfoModule();
+        const fn = resolveFunctionByName(module, config.moduleNames);
+        if (!fn) {
+            return null;
+        }
+
+        return {
+            source: 'module',
+            fn,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function resolveWorldInfoCapabilitySync(capabilityName) {
+    const config = WORLDINFO_CAPABILITIES[capabilityName];
+    if (!config) {
+        return null;
+    }
+
+    const context = getRawContext();
+    const contextFn = resolveFunctionByName(context, config.contextNames);
+    if (contextFn) {
+        return {
+            source: 'context',
+            fn: contextFn,
+        };
+    }
+
+    const windowFn = resolveFunctionByName(window, config.windowNames);
+    if (windowFn) {
+        return {
+            source: 'window',
+            fn: windowFn,
+        };
+    }
+
+    const moduleFn = resolveFunctionByName(cachedWorldInfoModule, config.moduleNames);
+    if (moduleFn) {
+        return {
+            source: 'module',
+            fn: moduleFn,
+        };
+    }
+
+    return null;
+}
+
+function resolveFunctionByName(target, names) {
+    if (!target || typeof target !== 'object' || !Array.isArray(names)) {
+        return null;
+    }
+
+    for (const name of names) {
+        if (typeof target[name] === 'function') {
+            return target[name].bind(target);
+        }
+    }
+
+    return null;
+}
+
+async function getWorldInfoModule() {
+    if (cachedWorldInfoModule) {
+        return cachedWorldInfoModule;
+    }
+
+    if (!worldInfoModulePromise) {
+        worldInfoModulePromise = import(WORLDINFO_MODULE_PATH)
+            .then((module) => {
+                cachedWorldInfoModule = module;
+                return module;
+            })
+            .catch((error) => {
+                worldInfoModulePromise = null;
+                throw error;
+            });
+    }
+
+    return worldInfoModulePromise;
+}
+
+function normalizeLorebookPayload(value) {
+    return value && typeof value === 'object'
+        ? value
+        : { entries: {} };
+}
+
 function findCharacterMatch(characters, directId, directName, avatar) {
     const wantedId = directId ? String(directId) : '';
     const wantedName = directName ? directName.trim().toLowerCase() : '';
@@ -500,16 +653,7 @@ function readLinkedLorebookNames(value) {
 
 async function fetchLorebookNamesFromSettingsApi() {
     try {
-        const response = await fetch('/api/settings/get', {
-            method: 'POST',
-            headers: getLorebookRequestHeaders(),
-            body: JSON.stringify({}),
-        });
-        if (!response.ok) {
-            return [];
-        }
-
-        const data = await response.json();
+        const data = await postJson(SETTINGS_GET_URL, {});
         return readLorebookNameCollection(data?.world_names);
     } catch (error) {
         console.warn('[NoteEditor] Failed to fetch lorebook names from settings API.', error);
@@ -558,15 +702,7 @@ function readLorebookNameOptions(selector) {
         .filter(Boolean);
 }
 
-async function createLorebookFileFallback(name, context = getRawContext()) {
-    const saver = [
-        context?.saveWorldInfo,
-        window.saveWorldInfo,
-    ].find((candidate) => typeof candidate === 'function');
-    if (!saver) {
-        return false;
-    }
-
+async function createLorebookFileFallback(name) {
     const existingNames = await listAvailableLorebookNames();
     const normalizedTargetName = normalizeComparableLorebookName(name);
     const alreadyExists = existingNames.some((candidate) => (
@@ -576,10 +712,36 @@ async function createLorebookFileFallback(name, context = getRawContext()) {
         return false;
     }
 
-    await saver(name, { entries: {} }, true);
-    await context?.updateWorldInfoList?.();
+    const saved = await invokeWorldInfoCapability('save', {
+        args: [name, { entries: {} }, true],
+        silentMissing: true,
+        silentFailure: true,
+    });
+    if (!saved.ok) {
+        return false;
+    }
+
+    await invokeWorldInfoCapability('updateList', {
+        silentMissing: true,
+        silentFailure: true,
+    });
     invalidateLorebookCache(name);
     return true;
+}
+
+async function postJson(url, body, init = {}) {
+    const response = await fetch(url, {
+        ...init,
+        method: 'POST',
+        headers: getLorebookRequestHeaders(),
+        body: JSON.stringify(body ?? {}),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Request failed: ${url} (${response.status})`);
+    }
+
+    return response.json();
 }
 
 function uniqueStrings(values) {
@@ -619,13 +781,6 @@ function normalizeComparableLorebookName(value) {
 
 function isTemplatePlaceholder(value) {
     return /^\{\{[^}]+\}\}$/.test(value);
-}
-
-function clearVisibleToasts() {
-    window.toastr?.clear?.();
-    document.querySelectorAll('.toast, .toastify, #toast-container .toast').forEach((element) => {
-        element.remove();
-    });
 }
 
 function getLorebookRequestHeaders() {

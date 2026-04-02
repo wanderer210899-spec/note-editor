@@ -2,7 +2,6 @@
 // Responsible for: pure editor document transforms and preview rendering helpers.
 
 import { extractTagsFromText, stripInlineTags } from './tag-utils.js';
-import { renderDocumentPreviewTerms } from './ui/editor-view.js';
 import { escapeHtml } from './util.js';
 
 export function createMarkdownConverter() {
@@ -28,12 +27,11 @@ export function createMarkdownConverter() {
 
 export function renderDocumentPreview(documentModel, markdownConverter) {
     const trimmed = documentModel.content.trim();
-    const termsMarkup = renderDocumentPreviewTerms(documentModel);
     const bodyMarkup = trimmed
         ? sanitizePreviewHtml(markdownConverter.makeHtml(normalizePreviewMarkdown(trimmed)))
         : '';
 
-    return `${termsMarkup}${bodyMarkup}`;
+    return bodyMarkup;
 }
 
 export function getFormattedEditorState(value, selectionStart, selectionEnd, type) {

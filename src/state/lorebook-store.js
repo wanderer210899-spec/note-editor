@@ -40,6 +40,7 @@ let unsubscribeNativeLorebookUpdates = null;
 let unsubscribeCharacterContextUpdates = null;
 
 const runtime = {
+    syncActive: false,
     workspaceStatus: 'idle',
     refreshPromise: null,
     workspaceRevision: 0,
@@ -60,16 +61,20 @@ const runtime = {
 };
 
 export function subscribeLorebook(listener) {
-    ensureNativeLorebookUpdateSubscription();
-    ensureCharacterContextUpdateSubscription();
     listeners.add(listener);
     listener(getLorebookState());
-    void ensureLorebookWorkspace();
+    if (runtime.syncActive) {
+        ensureNativeLorebookUpdateSubscription();
+        ensureCharacterContextUpdateSubscription();
+        void ensureLorebookWorkspace();
+    }
     return () => listeners.delete(listener);
 }
 
 export function getLorebookState() {
-    void ensureLorebookWorkspace();
+    if (runtime.syncActive) {
+        void ensureLorebookWorkspace();
+    }
 
     return {
         settings: getSettingsSnapshot(),
@@ -566,6 +571,29 @@ export function flushLorebookAutosave(immediately = true) {
     return flushAutosaveForBook(runtime.activeLorebookId, immediately);
 }
 
+export function setLorebookSyncActive(active, { refresh = false } = {}) {
+    const nextValue = Boolean(active);
+    if (runtime.syncActive === nextValue) {
+        if (nextValue && refresh) {
+            void ensureLorebookWorkspace({ forceRefresh: true });
+        }
+        return;
+    }
+
+    runtime.syncActive = nextValue;
+    if (!nextValue) {
+        unsubscribeNativeLorebookUpdates?.();
+        unsubscribeNativeLorebookUpdates = null;
+        unsubscribeCharacterContextUpdates?.();
+        unsubscribeCharacterContextUpdates = null;
+        return;
+    }
+
+    ensureNativeLorebookUpdateSubscription();
+    ensureCharacterContextUpdateSubscription();
+    void ensureLorebookWorkspace({ forceRefresh: Boolean(refresh) });
+}
+
 function ensureNativeLorebookUpdateSubscription() {
     if (unsubscribeNativeLorebookUpdates) {
         return;
@@ -593,6 +621,10 @@ function ensureCharacterContextUpdateSubscription() {
 }
 
 async function handleNativeLorebookUpdate(update) {
+    if (!runtime.syncActive) {
+        return;
+    }
+
     const targetLorebookIds = uniqueStrings([
         ...(Array.isArray(update?.names) ? update.names : []),
         Array.isArray(update?.names) && update.names.length > 0 ? null : runtime.activeLorebookId,
@@ -642,6 +674,10 @@ async function handleNativeLorebookUpdate(update) {
 }
 
 async function handleCharacterContextUpdate() {
+    if (!runtime.syncActive) {
+        return;
+    }
+
     await ensureLorebookWorkspace();
 }
 
@@ -910,7 +946,7 @@ async function persistBook(record, immediately) {
 
     try {
         record.ignoredExternalUpdateUntil = Date.now() + 2000;
-        await saveLorebookByName(record.name, payload, { immediately, refreshEditor: true });
+        await saveLorebookByName(record.name, payload, { immediately, refreshEditor: false });
         record.lastSavedRevision = saveRevision;
         record.inFlightRevision = 0;
         record.hasExternalChange = false;

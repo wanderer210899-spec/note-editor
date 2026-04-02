@@ -8,7 +8,8 @@ import {
 } from './note-transfer.js';
 import { normaliseDocumentSource } from './document-source.js';
 import { t } from './i18n/index.js';
-import { createLorebookFile, deleteLorebookFile, runWithSuppressedToasts } from './services/st-context.js';
+import { createLorebookFile, deleteLorebookFile } from './services/st-context.js';
+import { runWithSuppressedToasts } from './ui-feedback.js';
 import { openDocumentInSource } from './document-actions.js';
 import { getLorePositionMeta } from './state/lorebook-adapter.js';
 import {
@@ -116,16 +117,16 @@ export function handleSidebarAction(action, actionButton, {
             void setActiveLorebook(actionButton.dataset.lorebookId, { forceRefresh: true });
             return true;
         case 'go-to-lorebook-page': {
-            const lorebookId = String(actionButton.dataset.lorebookId ?? '').trim();
+            const pageKey = String(actionButton.dataset.pageKey ?? '').trim();
             const page = Number(actionButton.dataset.page);
-            if (!lorebookId || !Number.isFinite(page)) {
+            if (!pageKey || !Number.isFinite(page)) {
                 return true;
             }
 
             const uiState = getUiState();
             uiState.lorebookPageById = {
                 ...(uiState.lorebookPageById ?? {}),
-                [lorebookId]: Math.max(1, Math.trunc(page)),
+                [pageKey]: Math.max(1, Math.trunc(page)),
             };
             renderSidebarController();
             return true;
@@ -297,11 +298,7 @@ export function handleSidebarAction(action, actionButton, {
                 return true;
             }
             const uiState = getUiState();
-            if (uiState.bulkSelectedEntryKeys.has(key)) {
-                uiState.bulkSelectedEntryKeys.delete(key);
-            } else {
-                uiState.bulkSelectedEntryKeys.add(key);
-            }
+            toggleSelectionId(uiState.bulkSelectedEntryKeys, key);
             renderSidebarController();
             return true;
         }
@@ -311,11 +308,7 @@ export function handleSidebarAction(action, actionButton, {
                 return true;
             }
             const uiState = getUiState();
-            if (uiState.bulkSelectedLorebookNames.has(name)) {
-                uiState.bulkSelectedLorebookNames.delete(name);
-            } else {
-                uiState.bulkSelectedLorebookNames.add(name);
-            }
+            toggleSelectionId(uiState.bulkSelectedLorebookNames, name);
             renderSidebarController();
             return true;
         }
@@ -541,11 +534,7 @@ export function handleSidebarAction(action, actionButton, {
             }
 
             const uiState = getUiState();
-            if (uiState.bulkSelectedNoteIds.has(noteId)) {
-                uiState.bulkSelectedNoteIds.delete(noteId);
-            } else {
-                uiState.bulkSelectedNoteIds.add(noteId);
-            }
+            toggleSelectionId(uiState.bulkSelectedNoteIds, noteId);
 
             renderSidebarController();
             return true;

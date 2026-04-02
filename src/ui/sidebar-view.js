@@ -206,7 +206,9 @@ function renderNoteSectionHeader(section, model) {
     }
 
     const rowKey = `folder:${section.folderId}`;
-    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const revealedClass = getSidebarActionVisibilityClass({
+        swipeRevealed: model.revealedRowKey === rowKey,
+    });
     const expandedClass = section.isCollapsed ? '' : ' ne-folder-row--expanded';
 
     if (model.noteBulkSelectMode) {
@@ -245,30 +247,33 @@ function renderNoteRow(note, section, model, source) {
     if (model.noteBulkSelectMode) {
         const isChecked = model.bulkSelectedNoteIds?.has(note.id) ?? false;
         return `
-            <article class="ne-note-row ne-bulk-row${activeClass}" data-action="toggle-bulk-note-select" data-note-id="${escapeHtml(note.id)}" role="checkbox" aria-checked="${isChecked ? 'true' : 'false'}">
+            <article class="ne-item-row ne-note-row ne-bulk-row${activeClass}" data-action="toggle-bulk-note-select" data-note-id="${escapeHtml(note.id)}" role="checkbox" aria-checked="${isChecked ? 'true' : 'false'}">
                 <i class="fa-${isChecked ? 'solid fa-square-check' : 'regular fa-square'} ne-bulk-row__check"></i>
-                <span class="ne-note-row__title-line">
-                    <span class="ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
+                <span class="ne-item-row__title-line ne-note-row__title-line">
+                    <span class="ne-item-row__title ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
                     ${note.pinned ? `<span class="ne-note-row__pin" aria-label="${escapeHtml(t('notes.row.pinned'))}" title="${escapeHtml(t('notes.row.pinned'))}"><i class="fa-solid fa-thumbtack"></i></span>` : ''}
                 </span>
             </article>
         `;
     }
 
-    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const revealedClass = getSidebarActionVisibilityClass({
+        swipeRevealed: model.revealedRowKey === rowKey,
+        actionsVisible: Boolean(model.isMobile) && note.id === model.currentNoteId,
+    });
     const moveMenuOpen = note.id === model.moveMenuNoteId;
 
     return `
-        <article class="ne-note-row${activeClass}${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
-            <button class="ne-note-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(note.id)}" data-note-id="${escapeHtml(note.id)}">
-                <span class="ne-note-row__title-line">
-                    <span class="ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
+        <article class="ne-item-row ne-note-row${activeClass}${revealedClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+            <button class="ne-item-row__main ne-note-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(note.id)}" data-note-id="${escapeHtml(note.id)}">
+                <span class="ne-item-row__title-line ne-note-row__title-line">
+                    <span class="ne-item-row__title ne-note-row__title">${escapeHtml(getDisplayTitle(note.title, source))}</span>
                     ${note.pinned ? `<span class="ne-note-row__pin" aria-label="${escapeHtml(t('notes.row.pinned'))}" title="${escapeHtml(t('notes.row.pinned'))}"><i class="fa-solid fa-thumbtack"></i></span>` : ''}
                 </span>
-                ${excerpt ? `<span class="ne-note-row__excerpt">${escapeHtml(excerpt)}</span>` : ''}
+                ${excerpt ? `<span class="ne-item-row__meta ne-note-row__excerpt">${escapeHtml(excerpt)}</span>` : ''}
             </button>
 
-            <div class="ne-row-actions" aria-label="${escapeHtml(t('notes.row.actions'))}">
+            <div class="ne-item-row__actions ne-row-actions" aria-label="${escapeHtml(t('notes.row.actions'))}">
                 ${renderIconActionButton('toggle-note-pin', 'fa-thumbtack', note.pinned ? t('notes.row.unpin') : t('notes.row.pin'), { noteId: note.id })}
                 ${renderIconActionButton('toggle-move-menu', 'fa-folder-tree', t('notes.row.move'), { noteId: note.id })}
                 ${renderIconActionButton('delete-note-row', 'fa-trash', t('notes.row.delete'), { noteId: note.id, tone: 'danger' })}
@@ -316,42 +321,29 @@ function renderDeletePanel(model) {
                     colorClass: section.colorClass,
                 }))));
 
-    const entryRowsMarkup = allEntries.map((entry) => {
-        const checked = model.bulkSelectedEntryKeys.has(entry.key);
-        return `
-            <label class="ne-delete-panel__entry-row">
-                <input type="checkbox" class="ne-delete-panel__checkbox"
-                    data-action="toggle-bulk-entry-select"
-                    data-entry-key="${escapeHtml(entry.key)}"
-                    ${checked ? 'checked' : ''}
-                />
-                <span class="ne-delete-panel__entry-info">
-                    <span class="ne-delete-panel__entry-title">${escapeHtml(entry.title)}</span>
-                    <span class="ne-delete-panel__entry-meta">
-                        <span class="ne-lore-position-chip ${escapeHtml(entry.colorClass)}" aria-hidden="true"></span>
-                        ${escapeHtml(entry.lorebookName)} &rsaquo; ${escapeHtml(entry.sectionTitle)}
-                    </span>
-                </span>
-            </label>
-        `;
-    }).join('');
+    const entryRowsMarkup = allEntries.map((entry) => renderDeletePanelSelectionRow({
+        action: 'toggle-bulk-entry-select',
+        checked: model.bulkSelectedEntryKeys.has(entry.key),
+        title: entry.title,
+        entryKey: entry.key,
+        metaMarkup: `
+            <span class="ne-lore-position-chip ${escapeHtml(entry.colorClass)}" aria-hidden="true"></span>
+            ${escapeHtml(entry.lorebookName)} &rsaquo; ${escapeHtml(entry.sectionTitle)}
+        `,
+    })).join('');
 
     const selectedEntryCount = model.bulkSelectedEntryKeys.size;
 
-    return `
-        <div class="ne-delete-panel">
-            <div class="ne-lorebook-picker__header">
-                <p class="ne-lorebook-picker__title">${escapeHtml(t('delete.title'))}</p>
-                <button class="ne-btn ne-btn--soft ne-btn--icon" type="button"
-                    data-action="close-delete-panel"
-                    aria-label="${escapeHtml(t('delete.close'))}" title="${escapeHtml(t('delete.close'))}"
-                >
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-
+    return renderSidebarPanel({
+        panelClassName: 'ne-delete-panel',
+        headerMarkup: renderSidebarPanelHeader({
+            title: t('delete.title'),
+            closeAction: 'close-delete-panel',
+            closeLabel: t('delete.close'),
+        }),
+        bodyMarkup: `
             <section class="ne-delete-panel__section">
-                <p class="ne-delete-panel__section-label">${escapeHtml(t('delete.entries.section'))}</p>
+                ${renderPanelSectionLabel(t('delete.entries.section'))}
                 ${allEntries.length > 0 ? `
                     <div class="ne-delete-panel__list">${entryRowsMarkup}</div>
                     <button class="ne-btn ne-btn--danger ne-delete-panel__submit"
@@ -365,16 +357,16 @@ function renderDeletePanel(model) {
                                 ? escapeHtml(t('delete.entries.btn.one'))
                                 : escapeHtml(t('delete.entries.btn.many', { count: selectedEntryCount }))}
                     </button>
-                ` : `<p class="ne-lorebook-picker__empty">${escapeHtml(t('delete.entries.empty'))}</p>`}
+                ` : renderPanelSupportText(t('delete.entries.empty'))}
             </section>
 
             <hr class="ne-delete-panel__divider" />
 
             <section class="ne-delete-panel__section">
-                <p class="ne-delete-panel__section-label">${escapeHtml(t('delete.files.section'))}</p>
+                ${renderPanelSectionLabel(t('delete.files.section'))}
                 <p class="ne-delete-panel__warning"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ${escapeHtml(t('delete.files.warning'))}</p>
                 <input
-                    class="ne-input ne-lorebook-picker__search"
+                    class="ne-input ne-sidebar-panel__search ne-delete-panel__search"
                     type="text"
                     value="${escapeHtml(model.bulkDeleteLorebookSearch ?? '')}"
                     placeholder="${escapeHtml(t('delete.files.searchPlaceholder'))}"
@@ -387,8 +379,8 @@ function renderDeletePanel(model) {
                     ${renderDeletePanelLorebookFiles(model)}
                 </div>
             </section>
-        </div>
-    `;
+        `,
+    });
 }
 
 export function renderDeletePanelLorebookFiles(model) {
@@ -396,28 +388,19 @@ export function renderDeletePanelLorebookFiles(model) {
     const filteredLorebookNames = (model.availableLorebookNames ?? [])
         .filter((name) => !normalizedDeleteSearch || name.toLowerCase().includes(normalizedDeleteSearch));
 
-    const lorebookRowsMarkup = filteredLorebookNames.map((name) => {
-        const checked = model.bulkSelectedLorebookNames.has(name);
-        return `
-            <label class="ne-delete-panel__entry-row">
-                <input type="checkbox" class="ne-delete-panel__checkbox"
-                    data-action="toggle-bulk-lorebook-select"
-                    data-lorebook-name="${escapeHtml(name)}"
-                    ${checked ? 'checked' : ''}
-                />
-                <span class="ne-delete-panel__entry-info">
-                    <span class="ne-delete-panel__entry-title">${escapeHtml(name)}</span>
-                </span>
-            </label>
-        `;
-    }).join('');
+    const lorebookRowsMarkup = filteredLorebookNames.map((name) => renderDeletePanelSelectionRow({
+        action: 'toggle-bulk-lorebook-select',
+        checked: model.bulkSelectedLorebookNames.has(name),
+        title: name,
+        lorebookName: name,
+    })).join('');
 
     const selectedLorebookCount = model.bulkSelectedLorebookNames.size;
 
     return `
         ${filteredLorebookNames.length > 0 ? `
             <div class="ne-delete-panel__list">${lorebookRowsMarkup}</div>
-        ` : `<p class="ne-lorebook-picker__empty">${escapeHtml(t('delete.files.noMatch'))}</p>`}
+        ` : renderPanelSupportText(t('delete.files.noMatch'))}
         <button class="ne-btn ne-btn--danger ne-delete-panel__submit"
             type="button"
             data-action="bulk-delete-lorebooks"
@@ -429,6 +412,37 @@ export function renderDeletePanelLorebookFiles(model) {
                     ? escapeHtml(t('delete.files.btn.one'))
                     : escapeHtml(t('delete.files.btn.many', { count: selectedLorebookCount }))}
         </button>
+    `;
+}
+
+function renderDeletePanelSelectionRow({
+    action = '',
+    checked = false,
+    title = '',
+    metaMarkup = '',
+    entryKey = '',
+    lorebookName = '',
+} = {}) {
+    const selectionTargetAttr = entryKey
+        ? `data-entry-key="${escapeHtml(entryKey)}"`
+        : lorebookName
+            ? `data-lorebook-name="${escapeHtml(lorebookName)}"`
+            : '';
+
+    return `
+        <label class="ne-delete-panel__entry-row" data-checked="${checked ? 'true' : 'false'}">
+            <input
+                type="checkbox"
+                class="ne-delete-panel__checkbox"
+                data-bulk-toggle-action="${escapeHtml(action)}"
+                ${selectionTargetAttr}
+                ${checked ? 'checked' : ''}
+            />
+            <span class="ne-delete-panel__entry-info">
+                <span class="ne-delete-panel__entry-title">${escapeHtml(title)}</span>
+                ${metaMarkup ? `<span class="ne-delete-panel__entry-meta">${metaMarkup}</span>` : ''}
+            </span>
+        </label>
     `;
 }
 
@@ -449,7 +463,7 @@ export function renderLorebookPickerOptions(picker) {
         .join('');
 
     return `
-        ${optionsMarkup || `<p class="ne-lorebook-picker__empty">${escapeHtml(picker?.emptyMessage || t('picker.empty'))}</p>`}
+        ${optionsMarkup || renderPanelSupportText(picker?.emptyMessage || t('picker.empty'))}
         ${picker?.canCreate ? `
             <button
                 class="ne-btn ne-btn--soft ne-lorebook-picker__create"
@@ -466,7 +480,9 @@ export function renderLorebookPickerOptions(picker) {
 
 function renderLorebookSection(lorebook, model) {
     const rowKey = `lorebook:${lorebook.slotId}`;
-    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const revealedClass = getSidebarActionVisibilityClass({
+        swipeRevealed: model.revealedRowKey === rowKey,
+    });
     const showEntryCounters = model.settingsState?.showLorebookEntryCounters !== false;
     const countLabel = Number.isFinite(Number(lorebook.entryCount)) && Number(lorebook.entryCount) > 0
         ? `${lorebook.entryCount}`
@@ -475,6 +491,14 @@ function renderLorebookSection(lorebook, model) {
         ? renderLorebookPickerPanel(model.picker, lorebook)
         : '';
     const bodyMarkup = lorebook.isExpanded ? renderExpandedLorebookBody(lorebook, model) : '';
+    const sectionBodyMarkup = replacePickerMarkup || bodyMarkup
+        ? `
+            <div class="ne-lorebook-section__body">
+                ${replacePickerMarkup}
+                ${bodyMarkup}
+            </div>
+        `
+        : '';
 
     const activeSlotClass = lorebook.isActive ? ' ne-lorebook-section--has-active' : '';
 
@@ -508,8 +532,7 @@ function renderLorebookSection(lorebook, model) {
                     })}
                 `)}
             </header>
-            ${replacePickerMarkup}
-            ${bodyMarkup}
+            ${sectionBodyMarkup}
         </section>
     `;
 }
@@ -544,19 +567,13 @@ function renderLoreEntryCreationDialog(dialog) {
                 aria-label="${escapeHtml(t('dialog.createEntry.close'))}"
                 title="${escapeHtml(t('dialog.createEntry.close'))}"
             ></button>
-            <div class="ne-lore-entry-dialog" role="dialog" aria-modal="true" aria-labelledby="ne-lore-entry-dialog-title" data-lore-entry-create-dialog="true">
-                <div class="ne-lorebook-picker__header">
-                    <p class="ne-lorebook-picker__title" id="ne-lore-entry-dialog-title">${escapeHtml(dialog.title)}</p>
-                    <button
-                        class="ne-btn ne-btn--soft ne-btn--icon"
-                        type="button"
-                        data-action="close-lore-entry-create-dialog"
-                        aria-label="${escapeHtml(t('dialog.createEntry.close'))}"
-                        title="${escapeHtml(t('dialog.createEntry.close'))}"
-                    >
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
+            <div class="ne-lore-entry-dialog ne-sidebar-dialog" role="dialog" aria-modal="true" aria-labelledby="ne-lore-entry-dialog-title" data-lore-entry-create-dialog="true">
+                ${renderSidebarPanelHeader({
+                    title: dialog.title,
+                    titleId: 'ne-lore-entry-dialog-title',
+                    closeAction: 'close-lore-entry-create-dialog',
+                    closeLabel: t('dialog.createEntry.close'),
+                })}
 
                 <div class="ne-lore-entry-dialog__tabs" role="tablist" aria-label="${escapeHtml(t('dialog.createEntry.tabList'))}">
                     <button
@@ -580,7 +597,7 @@ function renderLoreEntryCreationDialog(dialog) {
                 ${isLorebookMode ? `
                     <div class="ne-lore-entry-dialog__fields">
                         <label class="ne-lore-entry-dialog__field">
-                            <span class="ne-lore-entry-dialog__label">${escapeHtml(t('dialog.createLorebook.field.name'))}</span>
+                            <span class="ne-lore-entry-dialog__label ne-field-label">${escapeHtml(t('dialog.createLorebook.field.name'))}</span>
                             <input
                                 class="ne-input"
                                 type="text"
@@ -591,11 +608,11 @@ function renderLoreEntryCreationDialog(dialog) {
                             />
                         </label>
                     </div>
-                    ${dialog.hasExactLorebookMatch ? `<p class="ne-lorebook-picker__empty">${escapeHtml(t('dialog.createLorebook.exists'))}</p>` : ''}
+                    ${dialog.hasExactLorebookMatch ? renderPanelSupportText(t('dialog.createLorebook.exists')) : ''}
                 ` : `
                 <div class="ne-lore-entry-dialog__fields">
                     <label class="ne-lore-entry-dialog__field">
-                        <span class="ne-lore-entry-dialog__label">${escapeHtml(t('dialog.createEntry.field.lorebook'))}</span>
+                        <span class="ne-lore-entry-dialog__label ne-field-label">${escapeHtml(t('dialog.createEntry.field.lorebook'))}</span>
                         <select
                             class="ne-input"
                             data-lore-entry-create-field="lorebookId"
@@ -606,7 +623,7 @@ function renderLoreEntryCreationDialog(dialog) {
                     </label>
 
                     <label class="ne-lore-entry-dialog__field">
-                        <span class="ne-lore-entry-dialog__label">${escapeHtml(t('dialog.createEntry.field.position'))}</span>
+                        <span class="ne-lore-entry-dialog__label ne-field-label">${escapeHtml(t('dialog.createEntry.field.position'))}</span>
                         <select
                             class="ne-input"
                             data-lore-entry-create-field="positionKey"
@@ -617,7 +634,7 @@ function renderLoreEntryCreationDialog(dialog) {
                     </label>
 
                     <label class="ne-lore-entry-dialog__field">
-                        <span class="ne-lore-entry-dialog__label">${escapeHtml(t('dialog.createEntry.field.order'))}</span>
+                        <span class="ne-lore-entry-dialog__label ne-field-label">${escapeHtml(t('dialog.createEntry.field.order'))}</span>
                         <input
                             class="ne-input"
                             type="number"
@@ -629,7 +646,7 @@ function renderLoreEntryCreationDialog(dialog) {
                 </div>
                 `}
 
-                ${isLorebookMode || dialog.canConfirmEntry ? '' : `<p class="ne-lorebook-picker__empty">${escapeHtml(t('dialog.createEntry.noLorebook'))}</p>`}
+                ${isLorebookMode || dialog.canConfirmEntry ? '' : renderPanelSupportText(t('dialog.createEntry.noLorebook'))}
 
                 <div class="ne-lore-entry-dialog__actions">
                     <button class="ne-btn ne-btn--soft" type="button" data-action="close-lore-entry-create-dialog">${escapeHtml(t('dialog.createEntry.cancel'))}</button>
@@ -683,12 +700,11 @@ function renderExpandedLorebookBody(lorebook, model) {
 
     return `
         ${sectionsMarkup || emptyMarkup}
-        ${renderLorebookPager(lorebook)}
     `;
 }
 
-function renderLorebookPager(lorebook) {
-    const paging = lorebook.paging ?? null;
+function renderLorePositionPager(section, lorebook) {
+    const paging = section.paging ?? null;
     if (!paging || paging.totalEntries <= paging.pageSize) {
         return '';
     }
@@ -708,7 +724,7 @@ function renderLorebookPager(lorebook) {
                     class="ne-btn ne-btn--soft"
                     type="button"
                     data-action="go-to-lorebook-page"
-                    data-lorebook-id="${escapeHtml(lorebook.id)}"
+                    data-page-key="${escapeHtml(section.pageKey)}"
                     data-page="${escapeHtml(String(paging.currentPage - 1))}"
                     ${paging.hasPreviousPage ? '' : 'disabled'}
                 >
@@ -719,7 +735,7 @@ function renderLorebookPager(lorebook) {
                     class="ne-btn ne-btn--soft"
                     type="button"
                     data-action="go-to-lorebook-page"
-                    data-lorebook-id="${escapeHtml(lorebook.id)}"
+                    data-page-key="${escapeHtml(section.pageKey)}"
                     data-page="${escapeHtml(String(paging.currentPage + 1))}"
                     ${paging.hasNextPage ? '' : 'disabled'}
                 >
@@ -737,7 +753,9 @@ function renderLorePositionSection(section, lorebook, model) {
         : section.entries.map((entry) => renderLoreEntryRow(entry, lorebook, model)).join('');
     const showEntryCounters = model.settingsState?.showLorebookEntryCounters !== false;
     const rowKey = `lore-position:${lorebook.id}:${section.key}`;
-    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const revealedClass = getSidebarActionVisibilityClass({
+        swipeRevealed: model.revealedRowKey === rowKey,
+    });
 
     const activePositionClass = section.hasActiveEntry ? ' ne-lore-position-section--has-active' : '';
 
@@ -763,7 +781,7 @@ function renderLorePositionSection(section, lorebook, model) {
                     `)}
                 </div>
             </header>
-            ${section.isCollapsed ? '' : `<div class="ne-note-list">${rowsMarkup}</div>`}
+            ${section.isCollapsed ? '' : `<div class="ne-note-list">${rowsMarkup}</div>${renderLorePositionPager(section, lorebook)}`}
         </section>
     `;
 }
@@ -771,7 +789,10 @@ function renderLorePositionSection(section, lorebook, model) {
 function renderLoreEntryRow(entry, lorebook, model) {
     const rowKey = `lore:${lorebook.id}:${entry.id}`;
     const activeClass = entry.isCurrent ? ' ne-note-row--active' : '';
-    const revealedClass = model.revealedRowKey === rowKey ? ' ne-swipe-row--revealed' : '';
+    const revealedClass = getSidebarActionVisibilityClass({
+        swipeRevealed: model.revealedRowKey === rowKey,
+        actionsVisible: Boolean(model.isMobile) && entry.isCurrent,
+    });
     const disabledClass = entry.enabled ? '' : ' ne-lore-row--disabled';
     const activationClass = `ne-lore-activation--${entry.activationMode}`;
     const activationLabel = entry.activationMode === 'constant'
@@ -782,16 +803,16 @@ function renderLoreEntryRow(entry, lorebook, model) {
     const keywordPreview = buildLoreEntryKeywordPreview(entry.primaryKeywords, entry.secondaryKeywords);
 
     return `
-        <article class="ne-note-row ne-lore-row${activeClass}${revealedClass}${disabledClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
+        <article class="ne-item-row ne-note-row ne-lore-row${activeClass}${revealedClass}${disabledClass}" data-swipe-row-key="${escapeHtml(rowKey)}">
             <div class="ne-lore-row__body">
-                <button class="ne-note-row__main ne-lore-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(entry.id)}" data-lorebook-id="${escapeHtml(lorebook.id)}">
-                    <span class="ne-note-row__title-line">
+                <button class="ne-item-row__main ne-note-row__main ne-lore-row__main" type="button" data-swipe-handle="true" data-document-id="${escapeHtml(entry.id)}" data-lorebook-id="${escapeHtml(lorebook.id)}">
+                    <span class="ne-item-row__title-line ne-note-row__title-line">
                         <span class="ne-lore-row__title-wrap">
                             <span class="ne-lore-row__activation ${escapeHtml(activationClass)}" title="${escapeHtml(activationLabel)}" aria-label="${escapeHtml(activationLabel)}"></span>
-                            <span class="ne-note-row__title">${escapeHtml(getDisplayTitle(entry.title, 'lorebook'))}</span>
+                            <span class="ne-item-row__title ne-note-row__title">${escapeHtml(getDisplayTitle(entry.title, 'lorebook'))}</span>
                         </span>
                     </span>
-                    <span class="ne-lore-row__meta">
+                    <span class="ne-item-row__meta ne-lore-row__meta">
                         ${escapeHtml(keywordPreview || activationLabel)}
                     </span>
                 </button>
@@ -812,7 +833,7 @@ function renderLoreEntryRow(entry, lorebook, model) {
 
             ${entry.isCurrent ? renderLoreEntryActiveControls(entry, lorebook) : ''}
 
-            <div class="ne-row-actions" aria-label="${escapeHtml(t('lore.row.actions'))}">
+            <div class="ne-item-row__actions ne-row-actions" aria-label="${escapeHtml(t('lore.row.actions'))}">
                 ${renderIconActionButton('toggle-lore-entry-enabled', entry.enabled ? 'fa-toggle-on' : 'fa-toggle-off', entry.enabled ? t('lore.row.disable') : t('lore.row.enable'), {
                     lorebookId: lorebook.id,
                     entryId: entry.id,
@@ -881,23 +902,16 @@ function renderLorebookPickerPanel(picker, lorebook = null) {
     const inputKey = `lorebook-picker-search:${picker.mode}${picker.slotId ? `:${picker.slotId}` : ''}`;
 
     return `
-        <div class="ne-lorebook-picker" data-lorebook-picker="${escapeHtml(picker.mode)}">
-            <div class="ne-lorebook-picker__header">
-                <p class="ne-lorebook-picker__title">${escapeHtml(title)}</p>
-                <button
-                    class="ne-btn ne-btn--soft ne-btn--icon"
-                    type="button"
-                    data-action="close-workspace-lorebook-picker"
-                    aria-label="${escapeHtml(t('picker.close'))}"
-                    title="${escapeHtml(t('picker.close'))}"
-                >
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
+        <div class="ne-lorebook-picker ne-sidebar-panel" data-lorebook-picker="${escapeHtml(picker.mode)}">
+            ${renderSidebarPanelHeader({
+                title,
+                closeAction: 'close-workspace-lorebook-picker',
+                closeLabel: t('picker.close'),
+            })}
             <label class="ne-visually-hidden" for="ne-lorebook-picker-search-${escapeHtml(picker.mode)}">${escapeHtml(t('picker.searchLabel'))}</label>
             <input
                 id="ne-lorebook-picker-search-${escapeHtml(picker.mode)}"
-                class="ne-input ne-lorebook-picker__search"
+                class="ne-input ne-sidebar-panel__search ne-lorebook-picker__search"
                 type="text"
                 value="${escapeHtml(picker.search ?? '')}"
                 placeholder="${escapeHtml(t('picker.searchPlaceholder'))}"
@@ -961,6 +975,20 @@ function buildKeywordPreviewLabel(label, keywords = []) {
     return `${label}: ${preview}${remainingCount > 0 ? ` +${remainingCount}` : ''}`;
 }
 
+function getSidebarActionVisibilityClass({
+    swipeRevealed = false,
+    actionsVisible = false,
+} = {}) {
+    const classes = [];
+    if (swipeRevealed) {
+        classes.push('ne-swipe-row--revealed');
+    }
+    if (swipeRevealed || actionsVisible) {
+        classes.push('ne-row-actions-visible');
+    }
+    return classes.length > 0 ? ` ${classes.join(' ')}` : '';
+}
+
 function renderIconActionButton(action, icon, label, options = {}) {
     const toneClass = options.tone === 'danger' ? ' ne-btn--danger' : '';
     const disabledAttr = options.disabled ? ' disabled aria-disabled="true"' : '';
@@ -986,10 +1014,47 @@ function renderIconActionButton(action, icon, label, options = {}) {
 
 function renderActionGroup(label, buttonsMarkup) {
     return `
-        <div class="ne-row-actions" aria-label="${escapeHtml(label)}">
+        <div class="ne-item-row__actions ne-row-actions" aria-label="${escapeHtml(label)}">
             ${buttonsMarkup}
         </div>
     `;
+}
+
+function renderSidebarPanel({ panelClassName = '', headerMarkup = '', bodyMarkup = '' } = {}) {
+    const className = ['ne-sidebar-panel', panelClassName].filter(Boolean).join(' ');
+    return `
+        <div class="${className}">
+            ${headerMarkup}
+            ${bodyMarkup ? `<div class="ne-sidebar-panel__body">${bodyMarkup}</div>` : ''}
+        </div>
+    `;
+}
+
+function renderSidebarPanelHeader({ title = '', titleId = '', closeAction = '', closeLabel = '' } = {}) {
+    return `
+        <div class="ne-sidebar-panel__header">
+            <p class="ne-sidebar-panel__title"${titleId ? ` id="${escapeHtml(titleId)}"` : ''}>${escapeHtml(title)}</p>
+            ${closeAction ? `
+                <button
+                    class="ne-btn ne-btn--soft ne-btn--icon ne-sidebar-panel__close"
+                    type="button"
+                    data-action="${escapeHtml(closeAction)}"
+                    aria-label="${escapeHtml(closeLabel)}"
+                    title="${escapeHtml(closeLabel)}"
+                >
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            ` : ''}
+        </div>
+    `;
+}
+
+function renderPanelSectionLabel(label) {
+    return `<p class="ne-delete-panel__section-label ne-section-label">${escapeHtml(label)}</p>`;
+}
+
+function renderPanelSupportText(text) {
+    return `<p class="ne-sidebar-panel__support ne-helper-text">${escapeHtml(text)}</p>`;
 }
 
 function getNoteExcerpt(content) {
