@@ -171,8 +171,11 @@ function subscribeEditorState() {
     editorState.unsubscribeSettings?.();
 
     editorState.unsubscribeDocumentState = subscribeActiveDocumentState((documentState) => {
+        const shouldRender = shouldRenderDocumentState(documentState);
         editorState.documentState = documentState;
-        renderEditor(documentState, editorState.sessionState);
+        if (shouldRender) {
+            renderEditor(documentState, editorState.sessionState);
+        }
     });
 
     editorState.unsubscribeSession = subscribeSession((sessionState) => {
@@ -483,6 +486,86 @@ function renderEditor(documentState, sessionState) {
 
     notifyToolbarLayoutUpdate();
     schedulePendingTitleEdit(currentDocument);
+}
+
+function shouldRenderDocumentState(nextDocumentState) {
+    const previousDocumentState = editorState.documentState;
+    if (!previousDocumentState) {
+        return true;
+    }
+
+    return !canApplyDocumentStateSilently(previousDocumentState, nextDocumentState);
+}
+
+function canApplyDocumentStateSilently(previousDocumentState, nextDocumentState) {
+    // If the live textarea already shows the correct text, background sync/save churn
+    // should not redraw the whole editor and risk interrupting mobile editing.
+    const contentInputEl = editorState.contentInputEl;
+    const previousDocument = previousDocumentState?.currentDocument ?? null;
+    const nextDocument = nextDocumentState?.currentDocument ?? null;
+    if (
+        !contentInputEl
+        || contentInputEl.hidden
+        || document.activeElement !== contentInputEl
+        || isPreviewMode()
+        || !previousDocument
+        || !nextDocument
+    ) {
+        return false;
+    }
+
+    if (
+        previousDocument.id !== nextDocument.id
+        || previousDocument.source !== nextDocument.source
+        || (previousDocumentState?.sidebarStateKey ?? null) !== (nextDocumentState?.sidebarStateKey ?? null)
+        || buildDocumentChromeRenderKey(previousDocument) !== buildDocumentChromeRenderKey(nextDocument)
+    ) {
+        return false;
+    }
+
+    return contentInputEl.value === getRenderedContentValue(nextDocument);
+}
+
+function buildDocumentChromeRenderKey(currentDocument) {
+    const meta = currentDocument?.meta ?? {};
+    const nativeTraits = meta.nativeTraits ?? {};
+    const position = meta.position ?? {};
+    const syncState = meta.syncState ?? {};
+    const termState = meta.termState ?? {};
+
+    return [
+        currentDocument?.id ?? '',
+        currentDocument?.source ?? '',
+        currentDocument?.title ?? '',
+        String(Boolean(currentDocument?.editable)),
+        String(meta.folderId ?? ''),
+        String(Boolean(meta.pinned)),
+        String(Boolean(meta.enabled)),
+        String(meta.activationMode ?? ''),
+        String(position.key ?? ''),
+        String(position.value ?? ''),
+        String(position.label ?? ''),
+        (Array.isArray(meta.tags) ? meta.tags : []).join('\u0001'),
+        (Array.isArray(meta.keywords) ? meta.keywords : []).join('\u0001'),
+        (Array.isArray(meta.secondaryKeywords) ? meta.secondaryKeywords : []).join('\u0001'),
+        String(meta.secondaryKeywordLogic ?? ''),
+        String(Boolean(nativeTraits.excludeRecursion)),
+        String(Boolean(nativeTraits.preventRecursion)),
+        String(Number.isFinite(Number(nativeTraits.probability)) ? Number(nativeTraits.probability) : ''),
+        String(Number.isFinite(Number(nativeTraits.order)) ? Number(nativeTraits.order) : ''),
+        String(nativeTraits.displayIndex ?? ''),
+        String(Boolean(syncState.hasExternalChange)),
+        String(syncState.lastLoadSource ?? ''),
+        String(Boolean(syncState.hasTrustedFreshLoad)),
+        String(termState.key ?? ''),
+        String(termState.buttonLabel ?? ''),
+        String(termState.singularLabel ?? ''),
+        String(termState.pluralLabel ?? ''),
+        String(termState.emptyHint ?? ''),
+        String(termState.unavailableHint ?? ''),
+        String(termState.activationMode ?? ''),
+        (Array.isArray(termState.items) ? termState.items : []).join('\u0001'),
+    ].join('|');
 }
 
 function handleTitleActivation(event) {
