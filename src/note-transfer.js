@@ -112,6 +112,7 @@ export function collectSelectedNoteExportEntries(noteSettings, selectionState = 
 export async function exportNotesToDirectory(noteSettings, selectionState, {
     overwriteExisting = true,
     exportFormat = 'md',
+    archiveWritable = null,
 } = {}) {
     const entries = collectSelectedNoteExportEntries(noteSettings, selectionState);
     const resolvedFormat = normalizeTransferExportFormat(exportFormat);
@@ -129,6 +130,8 @@ export async function exportNotesToDirectory(noteSettings, selectionState, {
         archiveFileName: resolvedFormat === 'txt'
             ? 'note-editor-notes-text-export.zip'
             : 'note-editor-notes-markdown-export.zip',
+        archiveWritable,
+        debugLabel: 'note-export',
     });
 }
 

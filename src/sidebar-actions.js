@@ -11,7 +11,11 @@ import {
     pickImportedLorebookFiles,
     pickImportedLorebookFolder,
 } from './lorebook-transfer.js';
-import { canUseArchiveSavePicker, prepareArchiveSaveHandle } from './transfer-export.js';
+import {
+    canUseArchiveSavePicker,
+    prepareArchiveSaveWritable,
+    shouldPreferArchiveExportOnPlatform,
+} from './transfer-export.js';
 import { normaliseDocumentSource } from './document-source.js';
 import { t } from './i18n/index.js';
 import { createLorebookFile, deleteLorebookFile, listAvailableLorebookNames } from './services/st-context.js';
@@ -1032,9 +1036,24 @@ async function runNoteImport({ picker, renderSidebarController }) {
 async function runNoteExport({ selectionState, exportFormat = 'md', renderSidebarController }) {
     try {
         const overwriteExisting = getSettingsState().transferOverwriteExisting === true;
+        const preferArchiveExport = shouldPreferArchiveExportOnPlatform();
+        const shouldPrepareArchiveWritable = preferArchiveExport
+            && canUseArchiveSavePicker({ allowWithDirectoryPicker: true });
+        const archiveWritable = shouldPrepareArchiveWritable
+            ? await prepareArchiveSaveWritable(
+                exportFormat === 'txt'
+                    ? 'note-editor-notes-text-export.zip'
+                    : 'note-editor-notes-markdown-export.zip',
+                { allowWithDirectoryPicker: true },
+            )
+            : null;
+        if (shouldPrepareArchiveWritable && !archiveWritable) {
+            return;
+        }
         const result = await exportNotesToDirectory(getNotesState().settings, selectionState, {
             overwriteExisting,
             exportFormat,
+            archiveWritable,
         });
         if (result.status === 'cancelled' || result.status === 'empty') {
             return;
@@ -1114,20 +1133,25 @@ async function runActiveLorebookExport({ exportFormat = 'md', renderSidebarContr
 async function runLorebookExport({ selectionState, exportFormat = 'md', renderSidebarController }) {
     try {
         const overwriteExisting = getSettingsState().transferOverwriteExisting === true;
-        const archiveHandle = canUseArchiveSavePicker()
-            ? await prepareArchiveSaveHandle(
+        const preferArchiveExport = shouldPreferArchiveExportOnPlatform();
+        const shouldPrepareArchiveWritable = canUseArchiveSavePicker({
+            allowWithDirectoryPicker: preferArchiveExport,
+        }) && (preferArchiveExport || typeof window.showDirectoryPicker !== 'function');
+        const archiveWritable = shouldPrepareArchiveWritable
+            ? await prepareArchiveSaveWritable(
                 exportFormat === 'txt'
                     ? 'note-editor-lorebook-text-export.zip'
                     : 'note-editor-lorebook-markdown-export.zip',
+                { allowWithDirectoryPicker: preferArchiveExport },
             )
             : null;
-        if (canUseArchiveSavePicker() && !archiveHandle) {
+        if (shouldPrepareArchiveWritable && !archiveWritable) {
             return;
         }
         const entries = await collectSelectedLorebookExportEntries(selectionState);
         const result = await exportLorebookEntriesToDirectory(entries, {
             overwriteExisting,
-            archiveHandle,
+            archiveWritable,
             exportFormat,
         });
         if (result.status === 'cancelled' || result.status === 'empty') {

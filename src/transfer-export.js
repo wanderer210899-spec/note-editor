@@ -19,6 +19,8 @@ export async function exportTextFiles(entries, {
     shareTitle = 'Note Editor Export',
     archiveFileName = 'note-editor-export.zip',
     archiveHandle = null,
+    archiveWritable = null,
+    debugLabel = 'export',
 } = {}) {
     const normalizedEntries = (Array.isArray(entries) ? entries : [])
         .map(normalizeTextExportEntry)
@@ -27,17 +29,21 @@ export async function exportTextFiles(entries, {
         return { status: 'empty', written: 0, skipped: 0, overwritten: 0 };
     }
 
-    if (typeof window.showDirectoryPicker === 'function') {
-        return exportToDirectory(normalizedEntries, { overwriteExisting });
+    const preferArchiveExport = shouldPreferArchiveExportOnPlatform();
+
+    if (typeof window.showDirectoryPicker === 'function' && !preferArchiveExport && !archiveHandle && !archiveWritable) {
+        return exportToDirectory(normalizedEntries, { overwriteExisting, debugLabel });
     }
 
     const archiveBlob = buildZipBlob(normalizedEntries);
 
-    if (archiveHandle || canUseArchiveSavePicker()) {
+    if (archiveHandle || archiveWritable || canUseArchiveSavePicker({ allowWithDirectoryPicker: preferArchiveExport })) {
         return exportToArchiveFile(normalizedEntries, {
             archiveFileName,
             archiveHandle,
+            archiveWritable,
             archiveBlob,
+            allowWithDirectoryPicker: preferArchiveExport,
         });
     }
 
@@ -49,13 +55,15 @@ export async function exportTextFiles(entries, {
     return downloadExportArchive(archiveBlob, normalizedEntries.length, { archiveFileName });
 }
 
-export function canUseArchiveSavePicker() {
-    return typeof window.showDirectoryPicker !== 'function'
-        && typeof window.showSaveFilePicker === 'function';
+export function canUseArchiveSavePicker({ allowWithDirectoryPicker = false } = {}) {
+    return typeof window.showSaveFilePicker === 'function'
+        && (allowWithDirectoryPicker || typeof window.showDirectoryPicker !== 'function');
 }
 
-export async function prepareArchiveSaveHandle(suggestedName = 'note-editor-export.zip') {
-    if (!canUseArchiveSavePicker()) {
+export async function prepareArchiveSaveHandle(suggestedName = 'note-editor-export.zip', {
+    allowWithDirectoryPicker = false,
+} = {}) {
+    if (!canUseArchiveSavePicker({ allowWithDirectoryPicker })) {
         return null;
     }
 
@@ -78,6 +86,16 @@ export async function prepareArchiveSaveHandle(suggestedName = 'note-editor-expo
     }
 }
 
+export async function prepareArchiveSaveWritable(suggestedName = 'note-editor-export.zip', {
+    allowWithDirectoryPicker = false,
+} = {}) {
+    const handle = await prepareArchiveSaveHandle(suggestedName, { allowWithDirectoryPicker });
+    if (!handle) {
+        return null;
+    }
+
+    return handle.createWritable();
+}
 function normalizeTextExportEntry(entry) {
     if (!entry || typeof entry !== 'object') {
         return null;
@@ -148,14 +166,18 @@ async function exportToDirectory(entries, { overwriteExisting = true } = {}) {
 async function exportToArchiveFile(entries, {
     archiveFileName = 'note-editor-export.zip',
     archiveHandle = null,
+    archiveWritable = null,
     archiveBlob = null,
+    allowWithDirectoryPicker = false,
 } = {}) {
-    const handle = archiveHandle || await prepareArchiveSaveHandle(archiveFileName);
-    if (!handle) {
+    const handle = archiveWritable
+        ? null
+        : (archiveHandle || await prepareArchiveSaveHandle(archiveFileName, { allowWithDirectoryPicker }));
+    if (!archiveWritable && !handle) {
         return { status: 'cancelled', written: 0, skipped: 0, overwritten: 0 };
     }
 
-    const writable = await handle.createWritable();
+    const writable = archiveWritable || await handle.createWritable();
     await writable.write(archiveBlob || buildZipBlob(entries));
     await writable.close();
     return {
@@ -255,6 +277,16 @@ function buildArchiveFile(archiveBlob, archiveFileName) {
     }
 
     return new File([archiveBlob], ensureZipFileName(archiveFileName), { type: ZIP_MIME_TYPE });
+}
+
+export function shouldPreferArchiveExportOnPlatform() {
+    const userAgentData = globalThis.navigator?.userAgentData;
+    if (typeof userAgentData?.platform === 'string' && /android/i.test(userAgentData.platform)) {
+        return true;
+    }
+
+    const userAgent = String(globalThis.navigator?.userAgent || '').toLowerCase();
+    return /android/.test(userAgent);
 }
 
 function buildZipBlob(entries) {
