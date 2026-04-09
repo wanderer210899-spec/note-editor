@@ -31,6 +31,7 @@ let noteLookup = buildLookup(settings.notes);
 let folderLookup = buildLookup(settings.folders);
 let settingsSnapshotCache = null;
 let currentDocumentCache = null;
+let sidebarStateRevision = 0;
 const sourceUi = getDocumentSourceUi(DOCUMENT_SOURCE_NOTE);
 let tagIndex = new Map();
 let tagIndexRevision = 0;
@@ -46,6 +47,7 @@ export function getNotesState() {
     return {
         settings: getSettingsSnapshot(),
         currentDocument: getCurrentDocumentSnapshot(),
+        sidebarStateKey: getSidebarStateKey(),
         saveStatus,
         sourceUi,
         tagIndex,
@@ -58,7 +60,12 @@ export function getFolderById(folderId) {
 }
 
 export function createNote(overrides = {}) {
-    const note = makeNote(overrides);
+    const resolvedFolderId = overrides.folderId && folderLookup.has(overrides.folderId) ? overrides.folderId : null;
+    const note = makeNote({
+        ...overrides,
+        folderId: resolvedFolderId,
+        title: getUniqueNoteTitle(overrides.title, resolvedFolderId),
+    });
     noteLookup.set(note.id, note);
     addToTagIndex(note.tags);
 
@@ -89,6 +96,7 @@ export function openNote(noteId) {
 export function updateCurrentNote(changes) {
     ensureCurrentNote();
 
+    let sidebarChanged = false;
     commit((draft) => {
         const note = getCurrentNote();
         if (!note) {
@@ -96,10 +104,30 @@ export function updateCurrentNote(changes) {
         }
 
         let changed = false;
+        const nextFolderId = typeof changes.folderId === 'string' || changes.folderId === null
+            ? (changes.folderId && folderLookup.has(changes.folderId) ? changes.folderId : null)
+            : note.folderId;
 
-        if (typeof changes.title === 'string' && note.title !== changes.title) {
-            note.title = changes.title;
+        if (typeof changes.title === 'string') {
+            const nextTitle = getUniqueNoteTitle(changes.title, nextFolderId, note.id);
+            if (note.title !== nextTitle) {
+                note.title = nextTitle;
+                changed = true;
+                sidebarChanged = true;
+            }
+        } else if (nextFolderId !== note.folderId) {
+            const nextTitle = getUniqueNoteTitle(note.title, nextFolderId, note.id);
+            if (note.title !== nextTitle) {
+                note.title = nextTitle;
+                changed = true;
+                sidebarChanged = true;
+            }
+        }
+
+        if (!note.title) {
+            note.title = getUniqueNoteTitle(note.title, nextFolderId, note.id);
             changed = true;
+            sidebarChanged = true;
         }
 
         if (typeof changes.content === 'string' && note.content !== changes.content) {
@@ -109,10 +137,11 @@ export function updateCurrentNote(changes) {
 
         if (
             (typeof changes.folderId === 'string' || changes.folderId === null)
-            && note.folderId !== changes.folderId
+            && note.folderId !== nextFolderId
         ) {
-            note.folderId = changes.folderId;
+            note.folderId = nextFolderId;
             changed = true;
+            sidebarChanged = true;
         }
 
         if (!changed) {
@@ -121,7 +150,7 @@ export function updateCurrentNote(changes) {
 
         note.updatedAt = new Date().toISOString();
         return true;
-    });
+    }, { sidebar: () => sidebarChanged });
 }
 
 export function toggleNotePinned(noteId) {
@@ -154,6 +183,7 @@ export function moveNoteToFolder(noteId, folderId) {
             return false;
         }
 
+        note.title = getUniqueNoteTitle(note.title, nextFolderId, note.id);
         note.folderId = nextFolderId;
         note.updatedAt = new Date().toISOString();
         return true;
@@ -228,7 +258,10 @@ export function removeCurrentNoteTag(tag) {
 
 export function createFolder(name, parentFolderId = null) {
     const resolvedParentId = parentFolderId && folderLookup.has(parentFolderId) ? parentFolderId : null;
-    const folder = makeFolder({ name: normaliseFolderName(name), parentFolderId: resolvedParentId });
+    const folder = makeFolder({
+        name: getUniqueFolderName(name, resolvedParentId),
+        parentFolderId: resolvedParentId,
+    });
     folderLookup.set(folder.id, folder);
 
     commit((draft) => {
@@ -240,7 +273,10 @@ export function createFolder(name, parentFolderId = null) {
 }
 
 export function renameFolder(folderId, name) {
-    const trimmedName = normaliseFolderName(name);
+    const folder = folderLookup.get(folderId);
+    const trimmedName = folder
+        ? getUniqueFolderName(name, folder.parentFolderId, folderId)
+        : normaliseFolderName(name);
     if (!trimmedName) {
         return;
     }
@@ -352,7 +388,7 @@ export function importNotesFromTransfer(records, { overwriteExisting = true } = 
         normalizedRecords.forEach((record) => {
             let folderId = null;
             if (record.folderPath) {
-                folderId = folderIdByPath.get(record.folderPath) ?? null;
+                folderId = folderIdByPath.get(buildFolderPathKey(record.folderPath)) ?? null;
                 if (!folderId) {
                     // Create each path segment as a nested folder.
                     const segments = record.folderPath.split('/').filter(Boolean);
@@ -360,18 +396,20 @@ export function importNotesFromTransfer(records, { overwriteExisting = true } = 
                     let parentId = null;
                     for (const segment of segments) {
                         const nextPath = currentPath ? `${currentPath}/${segment}` : segment;
-                        if (folderIdByPath.has(nextPath)) {
-                            parentId = folderIdByPath.get(nextPath);
+                        const nextPathKey = buildFolderPathKey(nextPath);
+                        if (folderIdByPath.has(nextPathKey)) {
+                            parentId = folderIdByPath.get(nextPathKey);
                         } else {
-                            const folder = makeFolder({ name: segment, parentFolderId: parentId });
+                            const folderName = getUniqueFolderName(segment, parentId);
+                            const folder = makeFolder({ name: folderName, parentFolderId: parentId });
                             draft.folders.push(folder);
                             folderLookup.set(folder.id, folder);
-                            folderIdByPath.set(nextPath, folder.id);
+                            folderIdByPath.set(buildFolderPathKey(currentPath ? `${currentPath}/${folderName}` : folderName), folder.id);
                             parentId = folder.id;
                             result.foldersCreated += 1;
                             didChange = true;
                         }
-                        currentPath = nextPath;
+                        currentPath = getFolderFullPath(parentId);
                     }
                     folderId = parentId;
                 }
@@ -381,37 +419,35 @@ export function importNotesFromTransfer(records, { overwriteExisting = true } = 
             const existingNote = noteByMatchKey.get(matchKey) ?? null;
 
             if (existingNote) {
-                if (!overwriteExisting) {
-                    result.skipped += 1;
+                if (overwriteExisting) {
+                    if (
+                        existingNote.title === record.title
+                        && existingNote.content === record.content
+                        && existingNote.folderId === folderId
+                    ) {
+                        result.skipped += 1;
+                        return;
+                    }
+
+                    existingNote.title = record.title;
+                    existingNote.content = record.content;
+                    existingNote.folderId = folderId;
+                    existingNote.updatedAt = new Date().toISOString();
+                    result.updated += 1;
+                    didChange = true;
                     return;
                 }
-
-                if (
-                    existingNote.title === record.title
-                    && existingNote.content === record.content
-                    && existingNote.folderId === folderId
-                ) {
-                    result.skipped += 1;
-                    return;
-                }
-
-                existingNote.title = record.title;
-                existingNote.content = record.content;
-                existingNote.folderId = folderId;
-                existingNote.updatedAt = new Date().toISOString();
-                result.updated += 1;
-                didChange = true;
-                return;
             }
 
+            const title = getUniqueNoteTitle(record.title, folderId);
             const note = makeNote({
-                title: record.title,
+                title,
                 content: record.content,
                 folderId,
             });
             draft.notes.unshift(note);
             noteLookup.set(note.id, note);
-            noteByMatchKey.set(matchKey, note);
+            noteByMatchKey.set(buildTransferMatchKey(record.folderPath, title), note);
             result.created += 1;
             didChange = true;
         });
@@ -531,12 +567,16 @@ function buildCurrentDocumentModel(currentNote) {
     };
 }
 
-function commit(mutator, { persist = true } = {}) {
+function commit(mutator, { persist = true, sidebar = true } = {}) {
     if (mutator(settings) === false) {
         return false;
     }
 
     stateRevision += 1;
+    const sidebarChanged = typeof sidebar === 'function' ? sidebar() : sidebar;
+    if (sidebarChanged) {
+        sidebarStateRevision += 1;
+    }
     settingsSnapshotCache = null;
     currentDocumentCache = null;
 
@@ -561,6 +601,10 @@ function emitChange() {
     listeners.forEach((listener) => listener(snapshot));
 }
 
+function getSidebarStateKey() {
+    return `note-sidebar:${sidebarStateRevision}`;
+}
+
 function buildLookup(items) {
     return new Map(items.map((item) => [item.id, item]));
 }
@@ -583,9 +627,13 @@ function buildFolderPathIndex(folders) {
     const index = new Map();
     folders.forEach((f) => {
         const path = normalizeTransferFolderPath(getFolderFullPath(f.id));
-        if (path) index.set(path, f.id);
+        if (path) index.set(buildFolderPathKey(path), f.id);
     });
     return index;
+}
+
+function buildFolderPathKey(path) {
+    return normalizeTransferFolderPath(path).normalize('NFKC').toLocaleLowerCase();
 }
 
 // Returns a Set containing folderId plus all its descendant folder IDs.
@@ -618,6 +666,48 @@ function collectDescendantFolderIds(rootId, folders) {
         frontier = next;
     }
     return result;
+}
+
+function getUniqueNoteTitle(title, folderId = null, excludeNoteId = null) {
+    const baseTitle = normalizeTransferTitle(title);
+    const existingTitles = settings.notes
+        .filter((note) => note.id !== excludeNoteId && (note.folderId || null) === (folderId || null))
+        .map((note) => normalizeTransferTitle(note.title));
+
+    return makeUniqueSiblingName(baseTitle, existingTitles);
+}
+
+function getUniqueFolderName(name, parentFolderId = null, excludeFolderId = null) {
+    const baseName = normaliseFolderName(name);
+    const existingNames = settings.folders
+        .filter((folder) => folder.id !== excludeFolderId && (folder.parentFolderId || null) === (parentFolderId || null))
+        .map((folder) => normaliseFolderName(folder.name));
+
+    return makeUniqueSiblingName(baseName, existingNames);
+}
+
+function makeUniqueSiblingName(baseName, existingNames = []) {
+    const normalizedBase = String(baseName ?? '').trim();
+    const usedNames = new Set(existingNames.map(normalizeNameKey).filter(Boolean));
+    if (!usedNames.has(normalizeNameKey(normalizedBase))) {
+        return normalizedBase;
+    }
+
+    let suffix = 2;
+    let candidate = `${normalizedBase} ${suffix}`;
+    while (usedNames.has(normalizeNameKey(candidate))) {
+        suffix += 1;
+        candidate = `${normalizedBase} ${suffix}`;
+    }
+    return candidate;
+}
+
+function normalizeNameKey(value) {
+    return String(value ?? '')
+        .normalize('NFKC')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase();
 }
 
 function normalizeTransferRecord(record) {

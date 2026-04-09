@@ -42,6 +42,16 @@ const WORLDINFO_CAPABILITIES = {
         windowNames: ['createWorldInfoEntry'],
         moduleNames: ['createWorldInfoEntry'],
     },
+    updateCharacterPrimary: {
+        contextNames: ['charUpdatePrimaryWorld'],
+        windowNames: ['charUpdatePrimaryWorld'],
+        moduleNames: ['charUpdatePrimaryWorld'],
+    },
+    updateCharacterAuxiliary: {
+        contextNames: ['charSetAuxWorlds'],
+        windowNames: ['charSetAuxWorlds'],
+        moduleNames: ['charSetAuxWorlds'],
+    },
 };
 
 let cachedWorldInfoModule = null;
@@ -182,13 +192,61 @@ export function resolveActiveCharacterLorebookLinks() {
         activeCharacter?.primaryLorebookName,
     );
     const fileName = firstNonEmptyString(activeCharacter?.fileName, activeCharacter?.avatar);
-    const charLoreValue = fileName ? worldInfoState?.charLore?.[fileName] : null;
+    const charLoreValue = fileName ? findCharacterLoreRecord(worldInfoState?.charLore, fileName) : null;
 
     return {
         character: activeCharacter,
         primaryName,
         linkedNames: uniqueStrings(readLinkedLorebookNames(charLoreValue)),
     };
+}
+
+export async function replaceActiveCharacterLorebookLink(oldName, newName) {
+    const trimmedOldName = firstNonEmptyString(oldName);
+    const trimmedNewName = firstNonEmptyString(newName);
+    if (!trimmedOldName || !trimmedNewName || trimmedOldName === trimmedNewName) {
+        return { ok: false, changed: false, reason: 'invalid' };
+    }
+
+    const linkedState = resolveActiveCharacterLorebookLinks();
+    const fileName = firstNonEmptyString(linkedState.character?.fileName, linkedState.character?.avatar);
+    const primaryMatches = linkedState.primaryName === trimmedOldName;
+    const nextLinkedNames = (Array.isArray(linkedState.linkedNames) ? linkedState.linkedNames : [])
+        .map((name) => (name === trimmedOldName ? trimmedNewName : name));
+    const linkedMatches = nextLinkedNames.some((name, index) => name !== linkedState.linkedNames[index]);
+
+    if (!primaryMatches && !linkedMatches) {
+        return { ok: true, changed: false, reason: null };
+    }
+
+    if (primaryMatches) {
+        const primaryResult = await invokeWorldInfoCapability('updateCharacterPrimary', {
+            args: [trimmedNewName],
+            failureMessage: 'Failed to update the active character primary lorebook link.',
+            silentMissing: true,
+        });
+        if (!primaryResult.ok) {
+            return { ok: false, changed: false, reason: 'primary-link' };
+        }
+    }
+
+    if (linkedMatches) {
+        if (!fileName) {
+            return { ok: false, changed: primaryMatches, reason: 'missing-character-file' };
+        }
+
+        const auxiliaryResult = await invokeWorldInfoCapability('updateCharacterAuxiliary', {
+            args: [fileName, uniqueStrings(nextLinkedNames)],
+            failureMessage: 'Failed to update the active character auxiliary lorebook links.',
+            silentMissing: true,
+        });
+        if (!auxiliaryResult.ok) {
+            return { ok: false, changed: primaryMatches, reason: 'auxiliary-link' };
+        }
+    }
+
+    flushExtensionSettings();
+    return { ok: true, changed: true, reason: null };
 }
 
 export async function loadLorebookByName(name) {
@@ -624,6 +682,10 @@ function collectLorebookNamesFromCharacters(characters) {
 }
 
 function readLinkedLorebookNames(value) {
+    if (!value) {
+        return [];
+    }
+
     if (Array.isArray(value)) {
         return value
             .map((item) => {
@@ -637,6 +699,12 @@ function readLinkedLorebookNames(value) {
     }
 
     if (value && typeof value === 'object') {
+        if (Array.isArray(value.extraBooks)) {
+            return value.extraBooks
+                .map((item) => firstNonEmptyString(item?.name, item?.world, item?.book, item))
+                .filter(Boolean);
+        }
+
         return Object.values(value)
             .map((item) => {
                 if (typeof item === 'string') {
@@ -649,6 +717,24 @@ function readLinkedLorebookNames(value) {
     }
 
     return [];
+}
+
+function findCharacterLoreRecord(charLore, fileName) {
+    if (!charLore || !fileName) {
+        return null;
+    }
+
+    if (Array.isArray(charLore)) {
+        return charLore.find((entry) => (
+            firstNonEmptyString(entry?.name, entry?.fileName, entry?.avatar) === fileName
+        )) ?? null;
+    }
+
+    if (charLore && typeof charLore === 'object') {
+        return charLore[fileName] ?? null;
+    }
+
+    return null;
 }
 
 async function fetchLorebookNamesFromSettingsApi() {

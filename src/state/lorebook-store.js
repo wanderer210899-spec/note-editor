@@ -4,11 +4,14 @@
 import { getDocumentSourceUi, DOCUMENT_SOURCE_LOREBOOK } from '../document-source.js';
 import {
     createNativeLorebookEntry,
+    deleteLorebookFile,
     listAvailableLorebookNames,
     loadLorebookByName,
     reloadLorebookByName,
+    replaceActiveCharacterLorebookLink,
     resolveActiveCharacterLorebookLinks,
     saveLorebookByName,
+    syncLorebookEditor,
     subscribeToCharacterContextUpdates,
     subscribeToLorebookUpdates,
 } from '../services/st-context.js';
@@ -392,6 +395,198 @@ export function deleteLorebookEntry(lorebookId, entryId) {
     return true;
 }
 
+export function buildLorebookTransferSettingsModel(selectionState = {}) {
+    const selectedLorebookIds = selectionState.selectedLorebookIds instanceof Set ? selectionState.selectedLorebookIds : new Set();
+    const selectedEntryKeys = selectionState.selectedEntryKeys instanceof Set ? selectionState.selectedEntryKeys : new Set();
+    const filteredSelectedEntryKeys = new Set(
+        [...selectedEntryKeys].filter((key) => {
+            const { lorebookId, entryId } = parseLorebookEntrySelectionKey(key);
+            return isLorebookEntryExportable(getBookEntry(getBookRecord(lorebookId), entryId));
+        }),
+    );
+    const lorebookSections = runtime.workspaceSlots
+        .map((slot) => {
+            const record = getBookRecord(slot.lorebookId);
+            const entries = getExportableLorebookEntryIds(record)
+                .map((entryId) => getBookEntry(record, entryId))
+                .filter(Boolean)
+                .map((entry) => ({
+                    id: String(entry.uid),
+                    title: normalizeStringValue(entry.comment, t('source.lorebook.untitled')),
+                    selected: filteredSelectedEntryKeys.has(buildLorebookEntrySelectionKey(slot.lorebookId, entry.uid)),
+                }));
+
+            return {
+                id: slot.lorebookId,
+                name: slot.lorebookId,
+                selected: selectedLorebookIds.has(slot.lorebookId),
+                entryCount: entries.length,
+                entries,
+                isLoaded: Boolean(record?.isLoaded),
+                isLoading: Boolean(record?.isLoading),
+            };
+        })
+        .filter((section) => section.isLoaded || section.entryCount > 0);
+    const activeLorebookId = String(runtime.activeLorebookId ?? '').trim();
+    const activeLorebookSection = lorebookSections.find((section) => section.id === activeLorebookId) ?? null;
+    const effectiveEntryKeys = collectSelectedLorebookEntryKeys(selectionState);
+
+    return {
+        source: DOCUMENT_SOURCE_LOREBOOK,
+        hasEntries: lorebookSections.some((section) => section.entryCount > 0),
+        activeLorebookId,
+        activeLorebookName: activeLorebookSection?.name ?? activeLorebookId,
+        activeLorebookEntryCount: activeLorebookSection?.entryCount ?? 0,
+        selectedLorebookCount: selectedLorebookIds.size,
+        selectedEntryCount: filteredSelectedEntryKeys.size,
+        effectiveExportCount: effectiveEntryKeys.size,
+        lorebookSections,
+        exportOptionsOpen: Boolean(selectionState.exportOptionsOpen),
+        exportPickerOpen: Boolean(selectionState.exportPickerOpen),
+        exportFormat: String(selectionState.exportFormat ?? '').trim().toLowerCase() === 'txt' ? 'txt' : 'md',
+    };
+}
+
+export async function collectSelectedLorebookExportEntries(selectionState = {}) {
+    const selectedLorebookIds = selectionState.selectedLorebookIds instanceof Set ? selectionState.selectedLorebookIds : new Set();
+    const explicitEntryKeys = selectionState.selectedEntryKeys instanceof Set ? selectionState.selectedEntryKeys : new Set();
+    const lorebookIdsToLoad = uniqueStrings([
+        ...selectedLorebookIds,
+        ...[...explicitEntryKeys].map((key) => parseLorebookEntrySelectionKey(key).lorebookId),
+    ]);
+
+    await Promise.all(lorebookIdsToLoad.map((lorebookId) => ensureBookLoaded(lorebookId, { markWarm: true })));
+
+    const selectedEntryKeys = collectSelectedLorebookEntryKeys(selectionState);
+    return [...selectedEntryKeys]
+        .map((key) => {
+            const { lorebookId, entryId } = parseLorebookEntrySelectionKey(key);
+            const record = getBookRecord(lorebookId);
+            const entry = getBookEntry(record, entryId);
+            return record && entry ? buildLorebookExportEntry(record, entry) : null;
+        })
+        .filter(Boolean);
+}
+
+export async function importLorebookEntriesFromTransfer(records, { overwriteExisting = true } = {}) {
+    const record = getActiveBookRecord();
+    if (!record) {
+        return { created: 0, updated: 0, skipped: 0 };
+    }
+
+    return importLorebookEntriesIntoLorebook(record.name, records, { overwriteExisting });
+}
+
+export async function importLorebookEntriesIntoLorebook(lorebookId, records, { overwriteExisting = true } = {}) {
+    const trimmedLorebookId = String(lorebookId ?? '').trim();
+    if (!trimmedLorebookId) {
+        return { created: 0, updated: 0, skipped: 0 };
+    }
+
+    await ensureBookLoaded(trimmedLorebookId, { markWarm: true });
+    const loadedRecord = getBookRecord(trimmedLorebookId);
+    if (!loadedRecord?.isLoaded || !loadedRecord.rawData) {
+        return { created: 0, updated: 0, skipped: 0 };
+    }
+
+    const normalizedRecords = (Array.isArray(records) ? records : [])
+        .map(normalizeLorebookTransferRecord)
+        .filter(Boolean);
+    const result = { created: 0, updated: 0, skipped: 0 };
+    if (normalizedRecords.length === 0) {
+        return result;
+    }
+
+    return importNormalizedLorebookTransferRecords(loadedRecord, normalizedRecords, { overwriteExisting });
+}
+
+function importNormalizedLorebookTransferRecords(loadedRecord, normalizedRecords, { overwriteExisting = true } = {}) {
+    const result = { created: 0, updated: 0, skipped: 0 };
+    const titleIndex = buildLorebookTitleIndex(loadedRecord);
+    let changed = false;
+    normalizedRecords.forEach((transferRecord) => {
+        const existingEntry = overwriteExisting
+            ? resolveExistingImportEntry(loadedRecord, transferRecord, titleIndex)
+            : null;
+
+        if (existingEntry) {
+            const before = JSON.stringify(existingEntry);
+            applyTransferRecordToLorebookEntry(existingEntry, transferRecord, loadedRecord);
+            if (JSON.stringify(existingEntry) === before) {
+                result.skipped += 1;
+                return;
+            }
+
+            titleIndex.set(normalizeImportTitleKey(existingEntry.comment), String(existingEntry.uid));
+            result.updated += 1;
+            changed = true;
+            return;
+        }
+
+        const nextUid = getNextLorebookEntryId(loadedRecord);
+        const nextEntry = buildNewLorebookEntry(loadedRecord, nextUid, {
+            title: transferRecord.title,
+            content: transferRecord.content,
+            position: Number.isInteger(transferRecord.position) ? transferRecord.position : undefined,
+            order: Number.isFinite(Number(transferRecord.order)) ? Number(transferRecord.order) : undefined,
+        });
+        applyTransferRecordToLorebookEntry(nextEntry, transferRecord, loadedRecord);
+        loadedRecord.rawData.entries[nextUid] = nextEntry;
+        loadedRecord.entriesById = loadedRecord.rawData.entries;
+        titleIndex.set(normalizeImportTitleKey(nextEntry.comment), nextUid);
+        result.created += 1;
+        changed = true;
+    });
+
+    if (changed) {
+        loadedRecord.entryCount = Object.keys(loadedRecord.entriesById).length;
+        commitBookMutation(loadedRecord, { invalidateSummaries: true });
+    }
+
+    return result;
+}
+
+export async function renameLorebook(oldName, newName) {
+    const trimmedOldName = String(oldName ?? '').trim();
+    const trimmedNewName = String(newName ?? '').trim();
+    if (!trimmedOldName || !trimmedNewName || trimmedOldName === trimmedNewName) {
+        return { ok: false, reason: 'invalid' };
+    }
+
+    const existingName = runtime.availableLorebookNames.find((name) => (
+        name.localeCompare(trimmedNewName, undefined, { sensitivity: 'base' }) === 0
+    ));
+    if (existingName && existingName !== trimmedOldName) {
+        return { ok: false, reason: 'exists' };
+    }
+
+    await flushAutosaveForBook(trimmedOldName, true);
+    const record = await ensureBookLoaded(trimmedOldName, { forceRefresh: true, markWarm: true });
+    if (!record?.rawData) {
+        return { ok: false, reason: 'load' };
+    }
+
+    const payload = buildCanonicalLorebookPayload(record.rawData);
+    const saved = await saveLorebookByName(trimmedNewName, payload, { immediately: true, refreshEditor: false });
+    if (!saved) {
+        return { ok: false, reason: 'save' };
+    }
+
+    const linkResult = await replaceActiveCharacterLorebookLink(trimmedOldName, trimmedNewName);
+    if (!linkResult.ok && linkResult.reason !== 'invalid') {
+        runtime.availableLorebookNames = uniqueStrings([...runtime.availableLorebookNames, trimmedNewName]);
+        invalidateSnapshots();
+        emitChange();
+        return { ok: false, reason: linkResult.reason || 'link' };
+    }
+
+    updateRuntimeAfterLorebookRename(trimmedOldName, trimmedNewName, record);
+    const deleted = await deleteLorebookFile(trimmedOldName);
+    await syncLorebookEditor(trimmedNewName, { loadIfNotSelected: true });
+    await ensureLorebookWorkspace({ forceRefresh: true });
+    return { ok: deleted, reason: deleted ? null : 'delete' };
+}
+
 export function toggleLorebookPositionSection(lorebookId, positionKey) {
     const trimmedLorebookId = String(lorebookId ?? '').trim();
     const trimmedPositionKey = String(positionKey ?? '').trim();
@@ -686,7 +881,7 @@ async function ensureLorebookWorkspace({ forceRefresh = false } = {}) {
     const characterKey = getCharacterWorkspaceKey(linkedState.character, linkedState);
     const characterChanged = runtime.lastCharacterKey !== characterKey;
 
-    if (!forceRefresh && runtime.refreshPromise) {
+    if (runtime.refreshPromise) {
         return runtime.refreshPromise;
     }
 
@@ -762,7 +957,7 @@ async function ensureBookLoaded(lorebookId, { forceRefresh = false, markWarm = f
         return null;
     }
 
-    if (record.loadPromise && !forceRefresh) {
+    if (record.loadPromise) {
         return record.loadPromise;
     }
 
@@ -785,7 +980,10 @@ async function ensureBookLoaded(lorebookId, { forceRefresh = false, markWarm = f
 
     record.loadPromise = (async () => {
         const loaded = forceRefresh
-            ? await reloadLorebookByName(lorebookId)
+            // Background refreshes only need fresh data for Note Editor itself.
+            // Re-syncing the native ST editor here can emit extra update events
+            // and cause repeated reload churn on large lorebooks.
+            ? await reloadLorebookByName(lorebookId, { refreshEditor: false })
             : await loadLorebookByName(lorebookId);
         if (!loaded) {
             throw new Error(`Could not load lorebook "${lorebookId}".`);
@@ -1959,6 +2157,218 @@ function syncCharacterPrimaryWorkspaceSlot(workspaceSlots = [], primaryLorebookI
         }),
         ...manualSlots,
     ];
+}
+
+function buildLorebookEntrySelectionKey(lorebookId, entryId) {
+    return `${encodeURIComponent(String(lorebookId ?? '').trim())}:${encodeURIComponent(String(entryId ?? '').trim())}`;
+}
+
+function parseLorebookEntrySelectionKey(key) {
+    const [encodedLorebookId = '', encodedEntryId = ''] = String(key ?? '').split(':');
+    try {
+        return {
+            lorebookId: decodeURIComponent(encodedLorebookId),
+            entryId: decodeURIComponent(encodedEntryId),
+        };
+    } catch {
+        return {
+            lorebookId: encodedLorebookId,
+            entryId: encodedEntryId,
+        };
+    }
+}
+
+function collectSelectedLorebookEntryKeys(selectionState = {}) {
+    const selectedLorebookIds = selectionState.selectedLorebookIds instanceof Set ? selectionState.selectedLorebookIds : new Set();
+    const selectedEntryKeys = selectionState.selectedEntryKeys instanceof Set ? selectionState.selectedEntryKeys : new Set();
+    const effectiveEntryKeys = new Set(selectedEntryKeys);
+
+    selectedLorebookIds.forEach((lorebookId) => {
+        const record = getBookRecord(lorebookId);
+        getExportableLorebookEntryIds(record).forEach((entryId) => {
+            effectiveEntryKeys.add(buildLorebookEntrySelectionKey(lorebookId, entryId));
+        });
+    });
+
+    return new Set(
+        [...effectiveEntryKeys].filter((key) => {
+            const { lorebookId, entryId } = parseLorebookEntrySelectionKey(key);
+            return isLorebookEntryExportable(getBookEntry(getBookRecord(lorebookId), entryId));
+        }),
+    );
+}
+
+function getExportableLorebookEntryIds(record) {
+    return getSortedEntryIds(record).filter((entryId) => (
+        isLorebookEntryExportable(getBookEntry(record, entryId))
+    ));
+}
+
+function isLorebookEntryExportable(entry) {
+    if (!entry || typeof entry !== 'object') {
+        return false;
+    }
+
+    const hasTitle = String(entry.comment ?? '').trim().length > 0;
+    const hasContent = String(entry.content ?? '').trim().length > 0;
+    const hasPrimaryKeywords = asStringArray(entry.key).length > 0;
+    const hasSecondaryKeywords = asStringArray(entry.keysecondary).length > 0;
+    return hasTitle || hasContent || hasPrimaryKeywords || hasSecondaryKeywords;
+}
+
+function buildLorebookExportEntry(record, entry) {
+    const normalizedEntry = normalizeLorebookEntry(entry);
+    const title = normalizeStringValue(normalizedEntry.title, t('source.lorebook.untitled')).trim()
+        || t('source.lorebook.untitled');
+    const secondaryKeywords = asStringArray(entry.keysecondary);
+
+    return {
+        lorebookId: record.name,
+        lorebookName: record.name,
+        entryId: normalizedEntry.id,
+        title,
+        content: normalizeStringValue(entry.content, ''),
+        metadata: {
+            noteEditorLorebookEntry: 1,
+            title,
+            lorebookName: record.name,
+            entryId: normalizedEntry.id,
+            primaryKeywords: asStringArray(entry.key),
+            secondaryKeywords,
+            secondaryKeywordLogic: getSecondaryKeywordLogicKey(entry.selectiveLogic, secondaryKeywords.length > 0),
+            position: normalizedEntry.positionValue,
+            order: normalizeIntegerFieldValue(entry.order, 100),
+            depth: Math.max(0, normalizeIntegerFieldValue(entry.depth, 4)),
+            enabled: normalizedEntry.enabled,
+            activationMode: normalizedEntry.activationMode,
+            excludeRecursion: Boolean(entry.excludeRecursion),
+            preventRecursion: Boolean(entry.preventRecursion),
+            probability: clampProbabilityValue(entry.probability, 100),
+        },
+    };
+}
+
+function normalizeLorebookTransferRecord(record) {
+    const metadata = record?.metadata && typeof record.metadata === 'object'
+        ? record.metadata
+        : {};
+    const fallbackTitle = normalizeStringValue(record?.title, t('source.lorebook.untitled'));
+    const title = normalizeStringValue(metadata.title, fallbackTitle).trim()
+        || t('source.lorebook.untitled');
+    const primaryKeywords = Array.isArray(metadata.primaryKeywords)
+        ? asStringArray(metadata.primaryKeywords)
+        : asStringArray(metadata.key);
+    const secondaryKeywords = Array.isArray(metadata.secondaryKeywords)
+        ? asStringArray(metadata.secondaryKeywords)
+        : asStringArray(metadata.keysecondary);
+    const position = normalizePositionValue(metadata.position);
+    const logic = typeof metadata.secondaryKeywordLogic === 'string'
+        ? normalizeSecondaryKeywordLogicValue(metadata.secondaryKeywordLogic)
+        : normalizeIntegerFieldValue(metadata.secondaryKeywordLogic, secondaryKeywords.length > 0 ? 0 : 0);
+    const activationMode = String(metadata.activationMode ?? '').trim() === 'constant'
+        ? 'constant'
+        : 'keyword';
+
+    return {
+        title,
+        content: normalizeStringValue(record?.content, ''),
+        entryId: String(metadata.entryId ?? metadata.uid ?? '').trim(),
+        primaryKeywords,
+        secondaryKeywords,
+        secondaryKeywordLogic: logic,
+        position,
+        order: normalizeIntegerFieldValue(metadata.order, 100),
+        depth: Math.max(0, normalizeIntegerFieldValue(metadata.depth, 4)),
+        enabled: metadata.enabled === undefined ? true : Boolean(metadata.enabled),
+        activationMode,
+        excludeRecursion: Boolean(metadata.excludeRecursion),
+        preventRecursion: Boolean(metadata.preventRecursion),
+        probability: clampProbabilityValue(metadata.probability, 100),
+    };
+}
+
+function resolveExistingImportEntry(record, transferRecord, titleIndex) {
+    const entryId = String(transferRecord.entryId ?? '').trim();
+    const entryById = entryId ? getBookEntry(record, entryId) : null;
+    if (entryById) {
+        return entryById;
+    }
+
+    const matchingEntryId = titleIndex.get(normalizeImportTitleKey(transferRecord.title));
+    return matchingEntryId ? getBookEntry(record, matchingEntryId) : null;
+}
+
+function buildLorebookTitleIndex(record) {
+    const titleIndex = new Map();
+    Object.values(record?.entriesById ?? {}).forEach((entry) => {
+        const key = normalizeImportTitleKey(entry?.comment);
+        if (key && !titleIndex.has(key)) {
+            titleIndex.set(key, String(entry.uid));
+        }
+    });
+    return titleIndex;
+}
+
+function normalizeImportTitleKey(value) {
+    return String(value ?? '')
+        .normalize('NFKC')
+        .trim()
+        .toLocaleLowerCase();
+}
+
+function applyTransferRecordToLorebookEntry(entry, transferRecord) {
+    entry.comment = transferRecord.title;
+    entry.content = transferRecord.content;
+    entry.key = [...transferRecord.primaryKeywords];
+    entry.keysecondary = [...transferRecord.secondaryKeywords];
+    entry.selective = entry.keysecondary.length > 0 || transferRecord.secondaryKeywordLogic !== 0;
+    entry.selectiveLogic = transferRecord.secondaryKeywordLogic;
+    if (Number.isInteger(transferRecord.position)) {
+        entry.position = transferRecord.position;
+    }
+    entry.order = transferRecord.order;
+    entry.depth = transferRecord.depth;
+    entry.disable = !transferRecord.enabled;
+    entry.constant = transferRecord.activationMode === 'constant';
+    entry.vectorized = false;
+    entry.excludeRecursion = transferRecord.excludeRecursion;
+    entry.preventRecursion = transferRecord.preventRecursion;
+    entry.probability = transferRecord.probability;
+    entry.useProbability = true;
+    entry.extensions = buildLorebookEntryExtensions(entry.extensions, entry);
+    entry.characterFilter = normalizeCharacterFilter(entry.characterFilter);
+}
+
+function updateRuntimeAfterLorebookRename(oldName, newName, record) {
+    runtime.books.delete(oldName);
+    record.name = newName;
+    record.hasExternalChange = false;
+    runtime.books.set(newName, record);
+    runtime.workspaceSlots = runtime.workspaceSlots.map((slot) => (
+        slot.lorebookId === oldName
+            ? { ...slot, lorebookId: newName }
+            : slot
+    ));
+    runtime.lorebookIds = getWorkspaceLorebookIds(runtime.workspaceSlots);
+    runtime.availableLorebookNames = uniqueStrings([
+        ...runtime.availableLorebookNames.filter((name) => name !== oldName),
+        newName,
+    ]);
+    runtime.activeLorebookId = runtime.activeLorebookId === oldName ? newName : runtime.activeLorebookId;
+    runtime.lastWarmLorebookId = runtime.lastWarmLorebookId === oldName ? newName : runtime.lastWarmLorebookId;
+    runtime.primaryLorebookId = runtime.primaryLorebookId === oldName ? newName : runtime.primaryLorebookId;
+    runtime.linkedLorebookIds = runtime.linkedLorebookIds.map((name) => (name === oldName ? newName : name));
+    if (runtime.collapsedPositionsByLorebook[oldName]) {
+        runtime.collapsedPositionsByLorebook = {
+            ...runtime.collapsedPositionsByLorebook,
+            [newName]: runtime.collapsedPositionsByLorebook[oldName],
+        };
+        delete runtime.collapsedPositionsByLorebook[oldName];
+    }
+    runtime.workspaceRevision += 1;
+    persistUiState();
+    invalidateSnapshots();
+    emitChange();
 }
 
 function invalidateSnapshots() {

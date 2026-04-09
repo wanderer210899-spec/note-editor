@@ -6,7 +6,7 @@ import { getNotesState } from './state/notes-store.js';
 import { buildNoteTransferSettingsModel, buildNoteTransferSummary } from './note-transfer.js';
 import { buildLorebookSidebarModel } from './state/lorebook-selectors.js';
 import { buildSidebarModel } from './state/notes-selectors.js';
-import { getLorebookState } from './state/lorebook-store.js';
+import { buildLorebookTransferSettingsModel, getLorebookState } from './state/lorebook-store.js';
 import {
     getSessionState,
     setSessionFiltersOpen,
@@ -116,15 +116,26 @@ export function renderSidebarController() {
     const rawModel = activeSource === 'note'
         ? buildSidebarModel(getNotesState(), sessionState, uiState)
         : buildLorebookSidebarModel(getLorebookState(), sessionState, uiState);
-    const noteTransferModel = uiState.settingsPanelOpen
+    const transferModel = uiState.settingsPanelOpen
         ? (() => {
+            if (activeSource === 'lorebook') {
+                return buildLorebookTransferSettingsModel({
+                    ...uiState.lorebookTransferSelection,
+                    exportOptionsOpen: uiState.lorebookExportOptionsOpen,
+                    exportPickerOpen: uiState.lorebookExportPickerOpen,
+                    exportFormat: uiState.lorebookTransferExportFormat,
+                });
+            }
+
             const notesSettings = getNotesState().settings;
-            const transferModel = uiState.noteExportPickerOpen
+            const noteTransferModel = uiState.noteExportPickerOpen
                 ? buildNoteTransferSettingsModel(notesSettings, uiState.noteTransferSelection)
                 : buildNoteTransferSummary(notesSettings, uiState.noteTransferSelection);
             return {
-                ...transferModel,
+                ...noteTransferModel,
+                source: 'note',
                 exportPickerOpen: uiState.noteExportPickerOpen,
+                exportFormat: uiState.noteTransferExportFormat,
             };
         })()
         : null;
@@ -133,7 +144,7 @@ export function renderSidebarController() {
         isMobile: isMobileViewport(),
         settingsPanelOpen: uiState.settingsPanelOpen,
         settingsState: getSettingsState(),
-        noteTransferModel,
+        transferModel,
     };
     currentSidebarModel = model;
 
@@ -263,6 +274,8 @@ function mountSidebarShell(source = 'note', { preservePanelState = false } = {})
         uiState.bulkSelectedEntryKeys = new Set();
         uiState.bulkDeleteLorebookSearch = '';
         uiState.bulkSelectedLorebookNames = new Set();
+        uiState.lorebookExportOptionsOpen = false;
+        uiState.lorebookExportPickerOpen = false;
     }
     sidebarRootEl.innerHTML = renderSidebarShell({ source: mountedSidebarSource });
     sidebarToolsEl = sidebarRootEl.querySelector('[data-sidebar-region="tools"]');
@@ -735,9 +748,17 @@ function createDefaultSidebarUiState() {
         bulkSelectedFolderIds: new Set(),
         settingsPanelOpen: false,
         noteExportPickerOpen: false,
+        lorebookExportOptionsOpen: false,
+        lorebookExportPickerOpen: false,
+        noteTransferExportFormat: 'md',
+        lorebookTransferExportFormat: 'md',
         noteTransferSelection: {
             selectedFolderIds: new Set(),
             selectedNoteIds: new Set(),
+        },
+        lorebookTransferSelection: {
+            selectedLorebookIds: new Set(),
+            selectedEntryKeys: new Set(),
         },
     };
 }

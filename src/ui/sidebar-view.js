@@ -128,7 +128,7 @@ export function renderSidebarFilters(model) {
 
 export function renderSidebarBody(model, source = 'note') {
     if (model.settingsPanelOpen) {
-        return renderSettingsPanel(model.settingsState, model.noteTransferModel);
+        return renderSettingsPanel(model.settingsState, model.transferModel);
     }
 
     const normalizedSource = normaliseDocumentSource(source);
@@ -523,6 +523,10 @@ function renderLorebookSection(lorebook, model) {
                 </button>
                 ${renderActionGroup(t('lorebook.row.actions'), `
                     ${renderIconActionButton('open-replace-workspace-lorebook-picker', 'fa-right-left', t('lorebook.row.replaceSlot', { name: lorebook.name }), {
+                        lorebookId: lorebook.id,
+                        slotId: lorebook.slotId,
+                    })}
+                    ${renderIconActionButton('rename-lorebook-row', 'fa-pen', t('lorebook.row.rename', { name: lorebook.name }), {
                         lorebookId: lorebook.id,
                         slotId: lorebook.slotId,
                     })}

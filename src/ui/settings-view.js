@@ -15,15 +15,6 @@ export function renderSettingsPanel(settingsState, transferModel = {}) {
         transferOverwriteExisting = false,
     } = settingsState ?? {};
     const fontScalePercent = Math.round(Number(panelFontScale) * 100);
-    const {
-        hasNotes = false,
-        selectedFolderCount = 0,
-        selectedNoteCount = 0,
-        effectiveExportCount = 0,
-        folderSections = [],
-        unfiledNotes = [],
-        exportPickerOpen = false,
-    } = transferModel ?? {};
 
     return `
         <div class="ne-settings-panel">
@@ -107,119 +98,272 @@ export function renderSettingsPanel(settingsState, transferModel = {}) {
                 </label>
             </section>
 
-            <section class="ne-settings-panel__section">
-                <p class="ne-settings-panel__section-label">${escapeHtml(t('settings.section.transfer'))}</p>
-                <label class="ne-settings-panel__checkbox-row">
-                    <input
-                        type="checkbox"
-                        data-settings-field="transferOverwriteExisting"
-                        ${transferOverwriteExisting ? 'checked' : ''}
-                    />
-                    <span>${escapeHtml(t('settings.transfer.overwriteExisting'))}</span>
-                </label>
-                <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.importTitle'))}</p>
-                <div class="ne-settings-panel__transfer-actions">
-                    <button class="ne-btn ne-btn--soft" type="button" data-action="import-note-files">
-                        ${escapeHtml(t('settings.transfer.importFiles'))}
-                    </button>
-                    <button class="ne-btn ne-btn--soft" type="button" data-action="import-note-folder">
-                        ${escapeHtml(t('settings.transfer.importFolder'))}
-                    </button>
-                </div>
-                <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.transfer.importHint'))}</p>
-                <div class="ne-settings-panel__section-head">
-                    <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.exportSelection'))}</p>
-                    <span class="ne-settings-panel__section-meta">${escapeHtml(t('settings.transfer.selectionSummary', { folders: selectedFolderCount, notes: selectedNoteCount, files: effectiveExportCount }))}</span>
-                </div>
-                ${exportPickerOpen ? `
-                    <div class="ne-settings-panel__mini-actions">
-                        <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="select-all-note-exports">
-                            ${escapeHtml(t('settings.transfer.selectAll'))}
-                        </button>
-                        <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="clear-note-exports">
-                            ${escapeHtml(t('settings.transfer.clearSelection'))}
-                        </button>
-                        <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="close-note-export-picker">
-                            ${escapeHtml(t('settings.transfer.hideExportPicker'))}
-                        </button>
-                    </div>
-                    ${hasNotes ? `
-                        <div class="ne-settings-panel__transfer-list">
-                            ${folderSections.map((section) => `
-                                <div class="ne-settings-panel__transfer-group">
-                                    <label
-                                        class="ne-settings-panel__transfer-row ne-settings-panel__transfer-row--folder"
-                                        data-action="toggle-note-export-folder"
-                                        data-folder-id="${escapeHtml(section.id)}"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            ${section.selected ? 'checked' : ''}
-                                        />
-                                        <span class="ne-settings-panel__transfer-text">${escapeHtml(section.name)}</span>
-                                        <span class="ne-settings-panel__transfer-meta">${escapeHtml(t('settings.transfer.folderMeta', { count: section.noteCount }))}</span>
-                                    </label>
-                                    <div class="ne-settings-panel__transfer-children">
-                                        ${section.notes.map((note) => `
-                                            <label
-                                                class="ne-settings-panel__transfer-row"
-                                                data-action="toggle-note-export-note"
-                                                data-note-id="${escapeHtml(note.id)}"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    ${note.selected ? 'checked' : ''}
-                                                />
-                                                <span class="ne-settings-panel__transfer-text">${escapeHtml(note.title)}</span>
-                                            </label>
-                                        `).join('')}
-                                    </div>
-                                </div>
+            ${renderTransferSection(transferModel, transferOverwriteExisting)}
+        </div>
+    `;
+}
+
+function renderTransferSection(transferModel = {}, transferOverwriteExisting = false) {
+    return `
+        <section class="ne-settings-panel__section">
+            <p class="ne-settings-panel__section-label">${escapeHtml(t('settings.section.transfer'))}</p>
+            <label class="ne-settings-panel__checkbox-row">
+                <input
+                    type="checkbox"
+                    data-settings-field="transferOverwriteExisting"
+                    ${transferOverwriteExisting ? 'checked' : ''}
+                />
+                <span>${escapeHtml(t('settings.transfer.overwriteExisting'))}</span>
+            </label>
+            ${transferModel?.source === 'lorebook'
+                ? renderLorebookTransferControls(transferModel)
+                : renderNoteTransferControls(transferModel)}
+        </section>
+    `;
+}
+
+function renderNoteTransferControls(transferModel = {}) {
+    const {
+        hasNotes = false,
+        selectedFolderCount = 0,
+        selectedNoteCount = 0,
+        effectiveExportCount = 0,
+        folderSections = [],
+        unfiledNotes = [],
+        exportPickerOpen = false,
+        exportFormat = 'md',
+    } = transferModel ?? {};
+
+    return `
+        <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.notes.importTitle'))}</p>
+        <div class="ne-settings-panel__transfer-actions">
+            <button class="ne-btn ne-btn--soft" type="button" data-action="import-note-files">
+                ${escapeHtml(t('settings.transfer.notes.importFiles'))}
+            </button>
+            <button class="ne-btn ne-btn--soft" type="button" data-action="import-note-folder">
+                ${escapeHtml(t('settings.transfer.notes.importFolder'))}
+            </button>
+        </div>
+        <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.transfer.notes.importHint'))}</p>
+        <div class="ne-settings-panel__section-head">
+            <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.notes.exportTitle'))}</p>
+            <span class="ne-settings-panel__section-meta">${escapeHtml(t('settings.transfer.notes.selectionSummary', { folders: selectedFolderCount, notes: selectedNoteCount, files: effectiveExportCount }))}</span>
+        </div>
+        ${renderExportFormatSelector({
+            exportFormat,
+            actionPrefix: 'set-note-export-format',
+        })}
+        ${exportPickerOpen ? renderNoteExportPicker({ hasNotes, folderSections, unfiledNotes, effectiveExportCount }) : `
+            <button
+                class="ne-btn ne-btn--soft ne-settings-panel__export-button"
+                type="button"
+                data-action="open-note-export-picker"
+                ${!hasNotes ? 'disabled' : ''}
+            >
+                ${escapeHtml(t('settings.transfer.notes.openExportPicker'))}
+            </button>
+            ${!hasNotes ? `<p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.notes.empty'))}</p>` : ''}
+        `}
+    `;
+}
+
+function renderNoteExportPicker({
+    hasNotes = false,
+    folderSections = [],
+    unfiledNotes = [],
+    effectiveExportCount = 0,
+} = {}) {
+    return `
+        <div class="ne-settings-panel__mini-actions">
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="select-all-note-exports">
+                ${escapeHtml(t('settings.transfer.selectAll'))}
+            </button>
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="clear-note-exports">
+                ${escapeHtml(t('settings.transfer.clearSelection'))}
+            </button>
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="close-note-export-picker">
+                ${escapeHtml(t('settings.transfer.hideExportPicker'))}
+            </button>
+        </div>
+        ${hasNotes ? `
+            <div class="ne-settings-panel__transfer-list">
+                ${folderSections.map((section) => `
+                    <div class="ne-settings-panel__transfer-group">
+                        <label class="ne-settings-panel__transfer-row ne-settings-panel__transfer-row--folder" data-action="toggle-note-export-folder" data-folder-id="${escapeHtml(section.id)}">
+                            <input type="checkbox" ${section.selected ? 'checked' : ''} />
+                            <span class="ne-settings-panel__transfer-text">${escapeHtml(section.name)}</span>
+                            <span class="ne-settings-panel__transfer-meta">${escapeHtml(t('settings.transfer.folderMeta', { count: section.noteCount }))}</span>
+                        </label>
+                        <div class="ne-settings-panel__transfer-children">
+                            ${section.notes.map((note) => `
+                                <label class="ne-settings-panel__transfer-row" data-action="toggle-note-export-note" data-note-id="${escapeHtml(note.id)}">
+                                    <input type="checkbox" ${note.selected ? 'checked' : ''} />
+                                    <span class="ne-settings-panel__transfer-text">${escapeHtml(note.title)}</span>
+                                </label>
                             `).join('')}
-                            ${unfiledNotes.length ? `
-                                <div class="ne-settings-panel__transfer-group">
-                                    <p class="ne-settings-panel__subsection-label">${escapeHtml(t('notes.section.unfiled'))}</p>
-                                    <div class="ne-settings-panel__transfer-children">
-                                        ${unfiledNotes.map((note) => `
-                                            <label
-                                                class="ne-settings-panel__transfer-row"
-                                                data-action="toggle-note-export-note"
-                                                data-note-id="${escapeHtml(note.id)}"
-                                            >
-                                                <input
-                                                    type="checkbox"
-                                                    ${note.selected ? 'checked' : ''}
-                                                />
-                                                <span class="ne-settings-panel__transfer-text">${escapeHtml(note.title)}</span>
-                                            </label>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            ` : ''}
                         </div>
-                    ` : `
-                        <p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.empty'))}</p>
-                    `}
-                    <button
-                        class="ne-btn ne-btn--soft ne-settings-panel__export-button"
-                        type="button"
-                        data-action="export-selected-notes"
-                        ${effectiveExportCount === 0 ? 'disabled' : ''}
-                    >
-                        ${escapeHtml(t('settings.transfer.exportSelected', { count: effectiveExportCount }))}
-                    </button>
-                ` : `
-                    <button
-                        class="ne-btn ne-btn--soft ne-settings-panel__export-button"
-                        type="button"
-                        data-action="open-note-export-picker"
-                        ${!hasNotes ? 'disabled' : ''}
-                    >
-                        ${escapeHtml(t('settings.transfer.openExportPicker'))}
-                    </button>
-                    ${!hasNotes ? `<p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.empty'))}</p>` : ''}
-                `}
-            </section>
+                    </div>
+                `).join('')}
+                ${unfiledNotes.length ? `
+                    <div class="ne-settings-panel__transfer-group">
+                        <p class="ne-settings-panel__subsection-label">${escapeHtml(t('notes.section.unfiled'))}</p>
+                        <div class="ne-settings-panel__transfer-children">
+                            ${unfiledNotes.map((note) => `
+                                <label class="ne-settings-panel__transfer-row" data-action="toggle-note-export-note" data-note-id="${escapeHtml(note.id)}">
+                                    <input type="checkbox" ${note.selected ? 'checked' : ''} />
+                                    <span class="ne-settings-panel__transfer-text">${escapeHtml(note.title)}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        ` : `
+            <p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.notes.empty'))}</p>
+        `}
+        <button class="ne-btn ne-btn--soft ne-settings-panel__export-button" type="button" data-action="export-selected-notes" ${effectiveExportCount === 0 ? 'disabled' : ''}>
+            ${escapeHtml(t('settings.transfer.exportSelected', { count: effectiveExportCount }))}
+        </button>
+    `;
+}
+
+function renderLorebookTransferControls(transferModel = {}) {
+    const {
+        hasEntries = false,
+        activeLorebookId = '',
+        activeLorebookName = '',
+        activeLorebookEntryCount = 0,
+        selectedLorebookCount = 0,
+        selectedEntryCount = 0,
+        effectiveExportCount = 0,
+        lorebookSections = [],
+        exportOptionsOpen = false,
+        exportPickerOpen = false,
+        exportFormat = 'md',
+    } = transferModel ?? {};
+    const hasActiveLorebook = Boolean(String(activeLorebookId || activeLorebookName).trim());
+
+    return `
+        <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.lorebook.importTitle'))}</p>
+        <div class="ne-settings-panel__transfer-actions">
+            <button class="ne-btn ne-btn--soft" type="button" data-action="import-lorebook-files">
+                ${escapeHtml(t('settings.transfer.lorebook.importFiles'))}
+            </button>
+            <button class="ne-btn ne-btn--soft" type="button" data-action="import-lorebook-folder">
+                ${escapeHtml(t('settings.transfer.lorebook.importFolder'))}
+            </button>
+        </div>
+        <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.transfer.lorebook.importHint'))}</p>
+        <div class="ne-settings-panel__section-head">
+            <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.lorebook.exportTitle'))}</p>
+            <span class="ne-settings-panel__section-meta">${escapeHtml(t('settings.transfer.lorebook.selectionSummary', { lorebooks: selectedLorebookCount, entries: selectedEntryCount, files: effectiveExportCount }))}</span>
+        </div>
+        ${renderExportFormatSelector({
+            exportFormat,
+            actionPrefix: 'set-lorebook-export-format',
+        })}
+        ${exportOptionsOpen ? `
+            <div class="ne-settings-panel__mini-actions">
+                <button
+                    class="ne-btn ne-btn--soft ne-settings-panel__mini-button"
+                    type="button"
+                    data-action="export-active-lorebook"
+                    ${!hasActiveLorebook ? 'disabled' : ''}
+                >
+                    ${escapeHtml(t('settings.transfer.lorebook.exportActive', {
+                        name: activeLorebookName || t('settings.transfer.lorebook.current'),
+                        count: activeLorebookEntryCount,
+                    }))}
+                </button>
+                <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="open-lorebook-export-picker" ${!hasEntries ? 'disabled' : ''}>
+                    ${escapeHtml(t('settings.transfer.lorebook.openExportPicker'))}
+                </button>
+                <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="close-lorebook-export-options">
+                    ${escapeHtml(t('settings.transfer.lorebook.hideExportOptions'))}
+                </button>
+            </div>
+            <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.transfer.lorebook.exportHint'))}</p>
+            ${exportPickerOpen ? renderLorebookExportPicker({ hasEntries, lorebookSections, effectiveExportCount }) : ''}
+            ${!hasEntries ? `<p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.lorebook.empty'))}</p>` : ''}
+        ` : `
+            <button class="ne-btn ne-btn--soft ne-settings-panel__export-button" type="button" data-action="open-lorebook-export-options" ${!hasActiveLorebook && !hasEntries ? 'disabled' : ''}>
+                ${escapeHtml(t('settings.transfer.lorebook.openExportOptions'))}
+            </button>
+            ${!hasEntries ? `<p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.lorebook.empty'))}</p>` : ''}
+        `}
+    `;
+}
+
+function renderLorebookExportPicker({
+    hasEntries = false,
+    lorebookSections = [],
+    effectiveExportCount = 0,
+} = {}) {
+    return `
+        <div class="ne-settings-panel__mini-actions">
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="select-all-lorebook-exports">
+                ${escapeHtml(t('settings.transfer.selectAll'))}
+            </button>
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="clear-lorebook-exports">
+                ${escapeHtml(t('settings.transfer.clearSelection'))}
+            </button>
+            <button class="ne-btn ne-btn--soft ne-settings-panel__mini-button" type="button" data-action="close-lorebook-export-picker">
+                ${escapeHtml(t('settings.transfer.hideExportPicker'))}
+            </button>
+        </div>
+        ${hasEntries ? `
+            <div class="ne-settings-panel__transfer-list">
+                ${lorebookSections.map((section) => `
+                    <div class="ne-settings-panel__transfer-group">
+                        <label class="ne-settings-panel__transfer-row ne-settings-panel__transfer-row--folder" data-action="toggle-lorebook-export-lorebook" data-lorebook-id="${escapeHtml(section.id)}">
+                            <input type="checkbox" ${section.selected ? 'checked' : ''} />
+                            <span class="ne-settings-panel__transfer-text">${escapeHtml(section.name)}</span>
+                            <span class="ne-settings-panel__transfer-meta">${escapeHtml(t('settings.transfer.lorebook.lorebookMeta', { count: section.entryCount }))}</span>
+                        </label>
+                        <div class="ne-settings-panel__transfer-children">
+                            ${section.entries.map((entry) => `
+                                <label class="ne-settings-panel__transfer-row" data-action="toggle-lorebook-export-entry" data-entry-key="${escapeHtml(`${encodeURIComponent(section.id)}:${encodeURIComponent(entry.id)}`)}">
+                                    <input type="checkbox" ${entry.selected || section.selected ? 'checked' : ''} />
+                                    <span class="ne-settings-panel__transfer-text">${escapeHtml(entry.title)}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        ` : `
+            <p class="ne-settings-panel__empty">${escapeHtml(t('settings.transfer.lorebook.empty'))}</p>
+        `}
+        <button class="ne-btn ne-btn--soft ne-settings-panel__export-button" type="button" data-action="export-selected-lorebook-entries" ${effectiveExportCount === 0 ? 'disabled' : ''}>
+            ${escapeHtml(t('settings.transfer.exportSelected', { count: effectiveExportCount }))}
+        </button>
+    `;
+}
+
+function renderExportFormatSelector({ exportFormat = 'md', actionPrefix = '' } = {}) {
+    return `
+        <div class="ne-settings-panel__section-head">
+            <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.transfer.exportFormat'))}</p>
+        </div>
+        <div class="ne-settings-panel__mini-actions">
+            <button
+                class="ne-btn ne-btn--soft ne-settings-panel__mini-button ${exportFormat === 'md' ? 'ne-btn--active' : ''}"
+                type="button"
+                data-action="${escapeHtml(actionPrefix)}"
+                data-export-format="md"
+                aria-pressed="${exportFormat === 'md' ? 'true' : 'false'}"
+            >
+                ${escapeHtml(t('settings.transfer.format.md'))}
+            </button>
+            <button
+                class="ne-btn ne-btn--soft ne-settings-panel__mini-button ${exportFormat === 'txt' ? 'ne-btn--active' : ''}"
+                type="button"
+                data-action="${escapeHtml(actionPrefix)}"
+                data-export-format="txt"
+                aria-pressed="${exportFormat === 'txt' ? 'true' : 'false'}"
+            >
+                ${escapeHtml(t('settings.transfer.format.txt'))}
+            </button>
         </div>
     `;
 }

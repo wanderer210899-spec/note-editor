@@ -58,6 +58,8 @@ import {
     renderLorebookMetadataTable,
 } from './ui/editor-view.js';
 
+const CONTENT_SYNC_DELAY_MS = 180;
+
 const editorState = {
     rootEl: null,
     editorShellEl: null,
@@ -95,6 +97,10 @@ const editorState = {
     loreOverflowOpen: false,
     lastLoreMetaDocumentId: null,
     lastLoreMetaRenderKey: '',
+    pendingContentTimer: 0,
+    pendingContentValue: null,
+    pendingContentDocumentId: null,
+    pendingContentSource: null,
 };
 
 const boundToolbarButtons = new WeakSet();
@@ -134,6 +140,7 @@ export function mountEditor(root, { toolbar } = {}) {
 }
 
 export function flushEditorState() {
+    flushPendingContentSync();
     flushActiveDocumentAutosave();
 }
 
@@ -186,6 +193,7 @@ function subscribeEditorState() {
         }
 
         if (sourceChanged) {
+            flushPendingContentSync();
             editorState.titleEditingDocumentId = null;
             editorState.pendingTitleEditDocumentId = null;
             editorState.pendingTitleEditActivationId = null;
@@ -214,9 +222,10 @@ function bindGlobalEvents() {
     }
 
     editorState.globalEventsBound = true;
-    window.addEventListener('beforeunload', flushActiveDocumentAutosave);
+    window.addEventListener('beforeunload', flushEditorState);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('pointerdown', handleDocumentPointerDown);
+    window.addEventListener('ne:flush-editor-state', handleExternalEditorFlushRequest);
 }
 
 function bindEditorEvents() {
@@ -234,7 +243,7 @@ function bindEditorEvents() {
 
     editorState.rootEl.addEventListener('input', (event) => {
         if (event.target === editorState.contentInputEl) {
-            updateCurrentDocument({ content: editorState.contentInputEl.value });
+            schedulePendingContentSync(editorState.contentInputEl.value);
         }
     });
     editorState.rootEl.addEventListener('change', handleEditorChange);
@@ -389,6 +398,7 @@ function handleEditorAction(action, actionButton) {
 }
 
 function createAndFocusCurrentDocument(overrides = {}) {
+    flushPendingContentSync();
     const currentDocumentId = editorState.documentState?.currentDocument?.id ?? null;
     const createdDocument = createCurrentSourceDocument(overrides);
     if (!createdDocument) {
@@ -459,10 +469,11 @@ function renderEditor(documentState, sessionState) {
 
     if (hasCurrentNote) {
         renderDocumentMeta(currentDocument);
-        syncFieldValue(editorState.contentInputEl, currentDocument.content);
+        syncFieldValue(editorState.contentInputEl, getRenderedContentValue(currentDocument));
         syncFieldValue(editorState.toolbarTitleInputEl, currentDocument.title);
-        syncPreviewContent(currentDocument, previewMode);
+        syncPreviewContent(getPreviewDocument(currentDocument), previewMode);
     } else {
+        clearPendingContentSyncState();
         renderDocumentMeta(null);
         editorState.contentInputEl.value = '';
         editorState.toolbarTitleInputEl.value = '';
@@ -646,6 +657,11 @@ function handleDocumentPointerDown(event) {
 
     const target = event.target;
     if (!(target instanceof Element)) {
+        return;
+    }
+
+    if (!target.closest('#ne-panel')) {
+        flushEditorState();
         return;
     }
 
@@ -847,10 +863,41 @@ function syncPreviewContent(currentDocument, previewMode) {
     editorState.previewState = nextPreviewState;
 }
 
+function getRenderedContentValue(currentDocument) {
+    if (
+        currentDocument
+        && hasPendingContentSync()
+        && currentDocument.id === editorState.pendingContentDocumentId
+        && currentDocument.source === editorState.pendingContentSource
+    ) {
+        return editorState.pendingContentValue;
+    }
+
+    return currentDocument?.content ?? '';
+}
+
+function getPreviewDocument(currentDocument) {
+    if (!currentDocument) {
+        return null;
+    }
+
+    const content = getRenderedContentValue(currentDocument);
+    if (content === currentDocument.content) {
+        return currentDocument;
+    }
+
+    return {
+        ...currentDocument,
+        content,
+    };
+}
+
 function applyFormat(type) {
     if (!editorState.contentInputEl || editorState.contentInputEl.hidden) {
         return;
     }
+
+    flushPendingContentSync();
 
     const nextEditorState = getFormattedEditorState(
         editorState.contentInputEl.value,
@@ -888,7 +935,7 @@ function handleContentFocus() {
 
 function handleContentBlur() {
     setCanvasFocusState(false);
-    flushActiveDocumentAutosave();
+    flushEditorState();
 }
 
 function setCanvasFocusState(isFocused) {
@@ -899,6 +946,8 @@ function commitCurrentTermLine() {
     if (!editorState.contentInputEl || editorState.contentInputEl.hidden) {
         return false;
     }
+
+    flushPendingContentSync();
 
     const nextEditorState = getInlineTermCommitState(
         editorState.contentInputEl.value,
@@ -1071,6 +1120,76 @@ function runQuietMutation(mutator) {
 
 function handleVisibilityChange() {
     if (document.visibilityState === 'hidden') {
-        flushActiveDocumentAutosave();
+        flushEditorState();
     }
+}
+
+function schedulePendingContentSync(value) {
+    const currentDocument = editorState.documentState?.currentDocument ?? null;
+    if (!currentDocument || !editorState.contentInputEl || editorState.contentInputEl.hidden) {
+        return;
+    }
+
+    editorState.pendingContentValue = String(value ?? '');
+    editorState.pendingContentDocumentId = currentDocument.id;
+    editorState.pendingContentSource = currentDocument.source;
+
+    if (editorState.pendingContentTimer) {
+        clearTimeout(editorState.pendingContentTimer);
+    }
+
+    editorState.pendingContentTimer = window.setTimeout(() => {
+        editorState.pendingContentTimer = 0;
+        flushPendingContentSync();
+    }, CONTENT_SYNC_DELAY_MS);
+}
+
+function flushPendingContentSync() {
+    if (!hasPendingContentSync()) {
+        clearPendingContentSyncState();
+        return false;
+    }
+
+    const currentDocument = editorState.documentState?.currentDocument ?? null;
+    if (
+        !currentDocument
+        || currentDocument.id !== editorState.pendingContentDocumentId
+        || currentDocument.source !== editorState.pendingContentSource
+    ) {
+        clearPendingContentSyncState();
+        return false;
+    }
+
+    const nextContent = editorState.pendingContentValue ?? '';
+    const changed = currentDocument.content !== nextContent;
+    clearPendingContentSyncState();
+    if (!changed) {
+        return false;
+    }
+
+    updateCurrentDocument({ content: nextContent }, currentDocument.source);
+    return true;
+}
+
+function clearPendingContentSyncState() {
+    if (editorState.pendingContentTimer) {
+        clearTimeout(editorState.pendingContentTimer);
+        editorState.pendingContentTimer = 0;
+    }
+
+    editorState.pendingContentValue = null;
+    editorState.pendingContentDocumentId = null;
+    editorState.pendingContentSource = null;
+}
+
+function hasPendingContentSync() {
+    return Boolean(
+        editorState.pendingContentDocumentId
+        && editorState.pendingContentSource
+        && editorState.pendingContentValue !== null
+    );
+}
+
+function handleExternalEditorFlushRequest() {
+    flushEditorState();
 }

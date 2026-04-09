@@ -2,12 +2,16 @@
 // Responsible for: note import/export file handling, Markdown path mapping, and transfer UI models.
 
 import { t } from './i18n/index.js';
+import { exportTextFiles } from './transfer-export.js';
 
 const IMPORT_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.txt']);
 const IMPORT_FILE_ACCEPT = '.md,.markdown,.txt,text/markdown,text/plain';
 const INVALID_FILE_SEGMENT_RE = /[<>:"/\\|?*\u0000-\u001f]/g;
 const PATH_SEPARATOR_RE = /[\\/]+/;
 const NOTE_EXPORT_EXTENSION = '.md';
+const TEXT_EXPORT_EXTENSION = '.txt';
+const MARKDOWN_MIME_TYPE = 'text/markdown;charset=utf-8';
+const TEXT_MIME_TYPE = 'text/plain;charset=utf-8';
 
 export function normalizeTransferFolderPath(value) {
     return String(value ?? '')
@@ -105,46 +109,27 @@ export function collectSelectedNoteExportEntries(noteSettings, selectionState = 
         });
 }
 
-export async function exportNotesToDirectory(noteSettings, selectionState, { overwriteExisting = true } = {}) {
+export async function exportNotesToDirectory(noteSettings, selectionState, {
+    overwriteExisting = true,
+    exportFormat = 'md',
+} = {}) {
     const entries = collectSelectedNoteExportEntries(noteSettings, selectionState);
-    if (entries.length === 0) {
-        return { status: 'empty', written: 0, skipped: 0, overwritten: 0 };
-    }
-
-    const directoryHandle = await chooseExportDirectory();
-    if (!directoryHandle) {
-        return { status: 'cancelled', written: 0, skipped: 0, overwritten: 0 };
-    }
-
-    const seenPaths = new Set();
-    let written = 0;
-    let skipped = 0;
-    let overwritten = 0;
-
-    for (const entry of entries) {
-        const pathKey = entry.relativePath.normalize('NFKC').toLowerCase();
-        const targetDirectory = await ensureDirectoryPath(directoryHandle, splitFolderPath(entry.folderPath));
-        const duplicateInBatch = seenPaths.has(pathKey);
-        const existsOnDisk = duplicateInBatch ? true : await fileExists(targetDirectory, entry.fileName);
-
-        if ((duplicateInBatch || existsOnDisk) && !overwriteExisting) {
-            skipped += 1;
-            continue;
-        }
-
-        if (duplicateInBatch || existsOnDisk) {
-            overwritten += 1;
-        }
-
-        const fileHandle = await targetDirectory.getFileHandle(entry.fileName, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(entry.content);
-        await writable.close();
-        seenPaths.add(pathKey);
-        written += 1;
-    }
-
-    return { status: 'success', written, skipped, overwritten };
+    const resolvedFormat = normalizeTransferExportFormat(exportFormat);
+    const fileExtension = resolvedFormat === 'txt' ? TEXT_EXPORT_EXTENSION : NOTE_EXPORT_EXTENSION;
+    const mimeType = resolvedFormat === 'txt' ? TEXT_MIME_TYPE : MARKDOWN_MIME_TYPE;
+    const exportEntries = entries.map((entry) => ({
+        ...entry,
+        fileName: replaceFileExtension(entry.fileName, fileExtension),
+        relativePath: replaceFileExtension(entry.relativePath, fileExtension),
+        mimeType,
+    }));
+    return exportTextFiles(exportEntries, {
+        overwriteExisting,
+        shareTitle: 'Note Editor Notes Export',
+        archiveFileName: resolvedFormat === 'txt'
+            ? 'note-editor-notes-text-export.zip'
+            : 'note-editor-notes-markdown-export.zip',
+    });
 }
 
 export async function pickImportedNoteFiles() {
@@ -193,41 +178,6 @@ function collectSelectedNoteIds(noteSettings, selectionState = {}) {
     });
 
     return effectiveNoteIds;
-}
-
-async function chooseExportDirectory() {
-    if (typeof window.showDirectoryPicker !== 'function') {
-        throw new Error(t('settings.transfer.export.unsupported'));
-    }
-
-    try {
-        return await window.showDirectoryPicker({ mode: 'readwrite' });
-    } catch (error) {
-        if (error?.name === 'AbortError') {
-            return null;
-        }
-        throw error;
-    }
-}
-
-async function ensureDirectoryPath(rootHandle, pathSegments) {
-    let directoryHandle = rootHandle;
-    for (const segment of pathSegments) {
-        directoryHandle = await directoryHandle.getDirectoryHandle(segment, { create: true });
-    }
-    return directoryHandle;
-}
-
-async function fileExists(directoryHandle, fileName) {
-    try {
-        await directoryHandle.getFileHandle(fileName);
-        return true;
-    } catch (error) {
-        if (error?.name === 'NotFoundError') {
-            return false;
-        }
-        throw error;
-    }
 }
 
 async function pickDirectoryFiles() {
@@ -353,10 +303,18 @@ function stripFileExtension(fileName) {
     return String(fileName ?? '').replace(/\.[^.]+$/, '');
 }
 
+function replaceFileExtension(fileName, extension) {
+    return `${stripFileExtension(fileName)}${extension}`;
+}
+
 export function normalizeImportedMarkdown(value) {
     return String(value ?? '')
         .replace(/^\uFEFF/, '')
         .replace(/\r\n?/g, '\n');
+}
+
+function normalizeTransferExportFormat(value) {
+    return String(value ?? '').trim().toLowerCase() === 'txt' ? 'txt' : 'md';
 }
 
 function sanitizePathSegment(value, fallback = 'untitled') {

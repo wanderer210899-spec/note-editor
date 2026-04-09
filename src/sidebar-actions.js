@@ -6,19 +6,29 @@ import {
     pickImportedNoteFiles,
     pickImportedNoteFolder,
 } from './note-transfer.js';
+import {
+    exportLorebookEntriesToDirectory,
+    pickImportedLorebookFiles,
+    pickImportedLorebookFolder,
+} from './lorebook-transfer.js';
+import { canUseArchiveSavePicker, prepareArchiveSaveHandle } from './transfer-export.js';
 import { normaliseDocumentSource } from './document-source.js';
 import { t } from './i18n/index.js';
-import { createLorebookFile, deleteLorebookFile } from './services/st-context.js';
+import { createLorebookFile, deleteLorebookFile, listAvailableLorebookNames } from './services/st-context.js';
 import { runWithSuppressedToasts } from './ui-feedback.js';
 import { openDocumentInSource } from './document-actions.js';
 import { getLorePositionMeta } from './state/lorebook-adapter.js';
 import {
     addManualLorebookToWorkspace,
+    collectSelectedLorebookExportEntries,
     deleteLorebookEntry,
     getLorebookState,
+    importLorebookEntriesIntoLorebook,
+    importLorebookEntriesFromTransfer,
     refreshLorebookWorkspace,
     removeLorebookWorkspaceSlot,
     replaceLorebookWorkspaceSlot,
+    renameLorebook,
     setLorebookEntryDepth,
     setLorebookEntryOrder,
     setLorebookEntryPosition,
@@ -68,6 +78,8 @@ export function handleSidebarAction(action, actionButton, {
             if (getUiState().settingsPanelOpen) {
                 getUiState().settingsPanelOpen = false;
                 getUiState().noteExportPickerOpen = false;
+                getUiState().lorebookExportOptionsOpen = false;
+                getUiState().lorebookExportPickerOpen = false;
                 renderSidebarController();
             } else {
                 closeSidebar();
@@ -216,6 +228,19 @@ export function handleSidebarAction(action, actionButton, {
                 uiState.lorebookPickerSearch = '';
             }
             uiState.revealedRowKey = '';
+            return true;
+        }
+        case 'rename-lorebook-row': {
+            const lorebookName = String(actionButton.dataset.lorebookId ?? '').trim();
+            if (!lorebookName) {
+                return true;
+            }
+
+            void runLorebookRename({
+                oldName: lorebookName,
+                renderSidebarController,
+                resetSidebarControllerState,
+            });
             return true;
         }
         case 'open-delete-panel': {
@@ -550,15 +575,11 @@ export function handleSidebarAction(action, actionButton, {
             }
 
             const uiState = getUiState();
-            const folderIds = collectFolderAndDescendantIds(folderId);
-            const noteIds = collectNoteIdsInFolder(folderId);
-            if (uiState.bulkSelectedFolderIds.has(folderId)) {
-                folderIds.forEach((id) => uiState.bulkSelectedFolderIds.delete(id));
-                noteIds.forEach((noteId) => uiState.bulkSelectedNoteIds.delete(noteId));
-            } else {
-                folderIds.forEach((id) => uiState.bulkSelectedFolderIds.add(id));
-                noteIds.forEach((noteId) => uiState.bulkSelectedNoteIds.add(noteId));
-            }
+            toggleFolderTreeSelection({
+                selectedFolderIds: uiState.bulkSelectedFolderIds,
+                selectedNoteIds: uiState.bulkSelectedNoteIds,
+                folderId,
+            });
 
             renderSidebarController();
             return true;
@@ -600,12 +621,16 @@ export function handleSidebarAction(action, actionButton, {
             uiState.loreEntryCreationOpen = false;
             uiState.lorebookPickerMode = null;
             uiState.noteExportPickerOpen = false;
+            uiState.lorebookExportOptionsOpen = false;
+            uiState.lorebookExportPickerOpen = false;
             renderSidebarController();
             return true;
         }
         case 'close-settings-panel':
             getUiState().settingsPanelOpen = false;
             getUiState().noteExportPickerOpen = false;
+            getUiState().lorebookExportOptionsOpen = false;
+            getUiState().lorebookExportPickerOpen = false;
             renderSidebarController();
             return true;
         case 'open-note-export-picker': {
@@ -620,6 +645,45 @@ export function handleSidebarAction(action, actionButton, {
             renderSidebarController();
             return true;
         }
+        case 'set-note-export-format': {
+            const uiState = getUiState();
+            uiState.noteTransferExportFormat = normalizeTransferExportFormat(actionButton.dataset.exportFormat);
+            renderSidebarController();
+            return true;
+        }
+        case 'open-lorebook-export-options': {
+            const uiState = getUiState();
+            uiState.lorebookExportOptionsOpen = true;
+            uiState.lorebookExportPickerOpen = false;
+            renderSidebarController();
+            return true;
+        }
+        case 'set-lorebook-export-format': {
+            const uiState = getUiState();
+            uiState.lorebookTransferExportFormat = normalizeTransferExportFormat(actionButton.dataset.exportFormat);
+            renderSidebarController();
+            return true;
+        }
+        case 'close-lorebook-export-options': {
+            const uiState = getUiState();
+            uiState.lorebookExportOptionsOpen = false;
+            uiState.lorebookExportPickerOpen = false;
+            renderSidebarController();
+            return true;
+        }
+        case 'open-lorebook-export-picker': {
+            const uiState = getUiState();
+            uiState.lorebookExportOptionsOpen = true;
+            uiState.lorebookExportPickerOpen = true;
+            renderSidebarController();
+            return true;
+        }
+        case 'close-lorebook-export-picker': {
+            const uiState = getUiState();
+            uiState.lorebookExportPickerOpen = false;
+            renderSidebarController();
+            return true;
+        }
         case 'reset-panel-font-scale':
             setSettingsPanelFontScale(getSettingsPanelFontScaleDefault());
             renderSidebarController();
@@ -631,12 +695,11 @@ export function handleSidebarAction(action, actionButton, {
                 return true;
             }
             const exportSelection = getNoteTransferSelectionState(getUiState());
-            const exportFolderIds = collectFolderAndDescendantIds(exportFolderId);
-            if (exportSelection.selectedFolderIds.has(exportFolderId)) {
-                exportFolderIds.forEach((id) => exportSelection.selectedFolderIds.delete(id));
-            } else {
-                exportFolderIds.forEach((id) => exportSelection.selectedFolderIds.add(id));
-            }
+            toggleFolderTreeSelection({
+                selectedFolderIds: exportSelection.selectedFolderIds,
+                selectedNoteIds: exportSelection.selectedNoteIds,
+                folderId: exportFolderId,
+            });
             renderSidebarController();
             return true;
         }
@@ -648,8 +711,21 @@ export function handleSidebarAction(action, actionButton, {
         case 'select-all-note-exports': {
             const selection = getNoteTransferSelectionState(getUiState());
             const notesSettings = getNotesState().settings;
-            selection.selectedFolderIds = new Set((notesSettings.folders ?? []).map((folder) => folder.id));
-            selection.selectedNoteIds = new Set((notesSettings.notes ?? []).map((note) => note.id));
+            selection.selectedFolderIds = new Set();
+            selection.selectedNoteIds = new Set();
+            (notesSettings.folders ?? [])
+                .filter((folder) => !folder.parentFolderId)
+                .forEach((folder) => {
+                    setFolderTreeSelection({
+                        selectedFolderIds: selection.selectedFolderIds,
+                        selectedNoteIds: selection.selectedNoteIds,
+                        folderId: folder.id,
+                        shouldSelect: true,
+                    });
+                });
+            (notesSettings.notes ?? [])
+                .filter((note) => !note.folderId)
+                .forEach((note) => selection.selectedNoteIds.add(note.id));
             renderSidebarController();
             return true;
         }
@@ -657,6 +733,31 @@ export function handleSidebarAction(action, actionButton, {
             const selection = getNoteTransferSelectionState(getUiState());
             selection.selectedFolderIds = new Set();
             selection.selectedNoteIds = new Set();
+            renderSidebarController();
+            return true;
+        }
+        case 'toggle-lorebook-export-lorebook': {
+            toggleSelectionId(getLorebookTransferSelectionState(getUiState()).selectedLorebookIds, actionButton.dataset.lorebookId);
+            renderSidebarController();
+            return true;
+        }
+        case 'toggle-lorebook-export-entry': {
+            toggleSelectionId(getLorebookTransferSelectionState(getUiState()).selectedEntryKeys, actionButton.dataset.entryKey);
+            renderSidebarController();
+            return true;
+        }
+        case 'select-all-lorebook-exports': {
+            const selection = getLorebookTransferSelectionState(getUiState());
+            const workspaceLorebooks = getLorebookState()?.settings?.workspaceLorebooks ?? [];
+            selection.selectedLorebookIds = new Set(workspaceLorebooks.map((lorebook) => lorebook.id));
+            selection.selectedEntryKeys = new Set();
+            renderSidebarController();
+            return true;
+        }
+        case 'clear-lorebook-exports': {
+            const selection = getLorebookTransferSelectionState(getUiState());
+            selection.selectedLorebookIds = new Set();
+            selection.selectedEntryKeys = new Set();
             renderSidebarController();
             return true;
         }
@@ -675,6 +776,32 @@ export function handleSidebarAction(action, actionButton, {
         case 'export-selected-notes':
             void runNoteExport({
                 selectionState: getNoteTransferSelectionState(getUiState()),
+                exportFormat: getUiState().noteTransferExportFormat,
+                renderSidebarController,
+            });
+            return true;
+        case 'import-lorebook-files':
+            void runLorebookImport({
+                picker: pickImportedLorebookFiles,
+                renderSidebarController,
+            });
+            return true;
+        case 'import-lorebook-folder':
+            void runLorebookImport({
+                picker: pickImportedLorebookFolder,
+                renderSidebarController,
+            });
+            return true;
+        case 'export-active-lorebook':
+            void runActiveLorebookExport({
+                exportFormat: getUiState().lorebookTransferExportFormat,
+                renderSidebarController,
+            });
+            return true;
+        case 'export-selected-lorebook-entries':
+            void runLorebookExport({
+                selectionState: getLorebookTransferSelectionState(getUiState()),
+                exportFormat: getUiState().lorebookTransferExportFormat,
                 renderSidebarController,
             });
             return true;
@@ -709,6 +836,7 @@ export function handleSidebarDocumentSelection(documentButton, { closeSidebarAft
         return false;
     }
 
+    requestEditorFlush('document-selection');
     const activeSource = normaliseDocumentSource(getSessionState().activeSource);
     if (activeSource === 'lorebook' && documentButton.dataset.lorebookId) {
         void (async () => {
@@ -823,6 +951,19 @@ function getNoteTransferSelectionState(uiState) {
     return uiState.noteTransferSelection;
 }
 
+function getLorebookTransferSelectionState(uiState) {
+    if (!uiState.lorebookTransferSelection) {
+        uiState.lorebookTransferSelection = {
+            selectedLorebookIds: new Set(),
+            selectedEntryKeys: new Set(),
+        };
+    }
+
+    uiState.lorebookTransferSelection.selectedLorebookIds ??= new Set();
+    uiState.lorebookTransferSelection.selectedEntryKeys ??= new Set();
+    return uiState.lorebookTransferSelection;
+}
+
 function toggleSelectionId(targetSet, value) {
     const normalizedValue = String(value ?? '').trim();
     if (!normalizedValue) {
@@ -835,6 +976,35 @@ function toggleSelectionId(targetSet, value) {
     }
 
     targetSet.add(normalizedValue);
+}
+
+function toggleFolderTreeSelection({ selectedFolderIds, selectedNoteIds, folderId }) {
+    const normalizedFolderId = String(folderId ?? '').trim();
+    if (!normalizedFolderId) {
+        return;
+    }
+
+    setFolderTreeSelection({
+        selectedFolderIds,
+        selectedNoteIds,
+        folderId: normalizedFolderId,
+        shouldSelect: !selectedFolderIds.has(normalizedFolderId),
+    });
+}
+
+function setFolderTreeSelection({ selectedFolderIds, selectedNoteIds, folderId, shouldSelect }) {
+    const normalizedFolderId = String(folderId ?? '').trim();
+    if (!normalizedFolderId) {
+        return;
+    }
+
+    const folderIds = collectFolderAndDescendantIds(normalizedFolderId);
+    const noteIds = collectNoteIdsInFolder(normalizedFolderId);
+    const targetFolderMethod = shouldSelect ? 'add' : 'delete';
+    const targetNoteMethod = shouldSelect ? 'add' : 'delete';
+
+    folderIds.forEach((id) => selectedFolderIds[targetFolderMethod](id));
+    noteIds.forEach((id) => selectedNoteIds[targetNoteMethod](id));
 }
 
 async function runNoteImport({ picker, renderSidebarController }) {
@@ -859,10 +1029,13 @@ async function runNoteImport({ picker, renderSidebarController }) {
     }
 }
 
-async function runNoteExport({ selectionState, renderSidebarController }) {
+async function runNoteExport({ selectionState, exportFormat = 'md', renderSidebarController }) {
     try {
         const overwriteExisting = getSettingsState().transferOverwriteExisting === true;
-        const result = await exportNotesToDirectory(getNotesState().settings, selectionState, { overwriteExisting });
+        const result = await exportNotesToDirectory(getNotesState().settings, selectionState, {
+            overwriteExisting,
+            exportFormat,
+        });
         if (result.status === 'cancelled' || result.status === 'empty') {
             return;
         }
@@ -877,4 +1050,206 @@ async function runNoteExport({ selectionState, renderSidebarController }) {
         console.error('[NoteEditor] Note export failed.', error);
         window.alert(error?.message || t('settings.transfer.error.export'));
     }
+}
+
+async function runLorebookImport({ picker, renderSidebarController }) {
+    try {
+        const picked = await picker();
+        if (!picked || picked.totalPicked === 0) {
+            return;
+        }
+
+        const overwriteExisting = getSettingsState().transferOverwriteExisting === true;
+        if (picked.importSource === 'folder') {
+            const targetLorebookName = await resolveLorebookFolderImportTargetName(picked.rootFolderName, { overwriteExisting });
+            if (!targetLorebookName) {
+                window.alert(t('settings.transfer.error.import'));
+                return;
+            }
+
+            await ensureLorebookImportTarget(targetLorebookName);
+            await setActiveLorebook(targetLorebookName);
+            const result = await importLorebookEntriesIntoLorebook(targetLorebookName, picked.records, { overwriteExisting });
+            renderSidebarController();
+            window.alert(t('settings.transfer.lorebook.result.importFolder', {
+                lorebook: targetLorebookName,
+                created: result.created,
+                updated: result.updated,
+                skipped: result.skipped,
+                unsupported: picked.skippedUnsupported,
+            }));
+            return;
+        }
+
+        const result = await importLorebookEntriesFromTransfer(picked.records, { overwriteExisting });
+        renderSidebarController();
+        window.alert(t('settings.transfer.result.import', {
+            created: result.created,
+            updated: result.updated,
+            skipped: result.skipped,
+            unsupported: picked.skippedUnsupported,
+        }));
+    } catch (error) {
+        console.error('[NoteEditor] Lorebook import failed.', error);
+        window.alert(t('settings.transfer.error.import'));
+    }
+}
+
+async function runActiveLorebookExport({ exportFormat = 'md', renderSidebarController }) {
+    const activeLorebookId = String(getLorebookState()?.settings?.activeLorebookId ?? '').trim();
+    if (!activeLorebookId) {
+        return;
+    }
+
+    await runLorebookExport({
+        selectionState: {
+            selectedLorebookIds: new Set([activeLorebookId]),
+            selectedEntryKeys: new Set(),
+        },
+        exportFormat,
+        renderSidebarController,
+    });
+}
+
+async function runLorebookExport({ selectionState, exportFormat = 'md', renderSidebarController }) {
+    try {
+        const overwriteExisting = getSettingsState().transferOverwriteExisting === true;
+        const archiveHandle = canUseArchiveSavePicker()
+            ? await prepareArchiveSaveHandle(
+                exportFormat === 'txt'
+                    ? 'note-editor-lorebook-text-export.zip'
+                    : 'note-editor-lorebook-markdown-export.zip',
+            )
+            : null;
+        if (canUseArchiveSavePicker() && !archiveHandle) {
+            return;
+        }
+        const entries = await collectSelectedLorebookExportEntries(selectionState);
+        const result = await exportLorebookEntriesToDirectory(entries, {
+            overwriteExisting,
+            archiveHandle,
+            exportFormat,
+        });
+        if (result.status === 'cancelled' || result.status === 'empty') {
+            return;
+        }
+
+        renderSidebarController();
+        window.alert(t('settings.transfer.result.export', {
+            written: result.written,
+            overwritten: result.overwritten,
+            skipped: result.skipped,
+        }));
+    } catch (error) {
+        console.error('[NoteEditor] Lorebook export failed.', error);
+        window.alert(error?.message || t('settings.transfer.error.export'));
+    }
+}
+
+async function runLorebookRename({ oldName, renderSidebarController, resetSidebarControllerState }) {
+    const newName = window.prompt(t('prompt.lorebook.rename'), oldName);
+    if (newName === null) {
+        return;
+    }
+
+    const trimmedNewName = String(newName ?? '').trim();
+    if (!trimmedNewName || trimmedNewName === oldName) {
+        return;
+    }
+
+    try {
+        const result = await renameLorebook(oldName, trimmedNewName);
+        if (!result.ok) {
+            window.alert(getLorebookRenameFailureMessage(result.reason));
+            renderSidebarController();
+            return;
+        }
+
+        resetSidebarControllerState();
+        renderSidebarController();
+    } catch (error) {
+        console.error('[NoteEditor] Lorebook rename failed.', error);
+        window.alert(t('rename.lorebook.failed'));
+        renderSidebarController();
+    }
+}
+
+function getLorebookRenameFailureMessage(reason) {
+    if (reason === 'exists') {
+        return t('rename.lorebook.exists');
+    }
+    if (reason === 'delete') {
+        return t('rename.lorebook.deleteFailed');
+    }
+    if (String(reason ?? '').includes('link')) {
+        return t('rename.lorebook.linkFailed');
+    }
+
+    return t('rename.lorebook.failed');
+}
+
+async function ensureLorebookImportTarget(targetLorebookName) {
+    const trimmedName = String(targetLorebookName ?? '').trim();
+    if (!trimmedName) {
+        return false;
+    }
+
+    const availableNames = await listAvailableLorebookNames();
+    const existingName = findMatchingLorebookName(availableNames, trimmedName);
+    if (!existingName) {
+        const created = await createLorebookFile(trimmedName);
+        if (!created) {
+            return false;
+        }
+    }
+
+    const workspaceLorebooks = getLorebookState()?.settings?.workspaceLorebooks ?? [];
+    const visibleName = existingName || trimmedName;
+    if (!workspaceLorebooks.some((lorebook) => lorebook.id === visibleName)) {
+        await addManualLorebookToWorkspace(visibleName);
+    }
+
+    return true;
+}
+
+async function resolveLorebookFolderImportTargetName(rootFolderName, { overwriteExisting = true } = {}) {
+    const preferredName = String(rootFolderName ?? '').trim() || t('settings.transfer.lorebook.importedFallbackName');
+    const availableNames = await listAvailableLorebookNames();
+    const existingName = findMatchingLorebookName(availableNames, preferredName);
+    if (existingName && overwriteExisting) {
+        return existingName;
+    }
+    if (!existingName) {
+        return preferredName;
+    }
+
+    let suffix = 2;
+    let candidate = `${preferredName} ${suffix}`;
+    while (findMatchingLorebookName(availableNames, candidate)) {
+        suffix += 1;
+        candidate = `${preferredName} ${suffix}`;
+    }
+    return candidate;
+}
+
+function findMatchingLorebookName(availableNames, wantedName) {
+    const trimmedWantedName = String(wantedName ?? '').trim();
+    if (!trimmedWantedName) {
+        return '';
+    }
+
+    return (Array.isArray(availableNames) ? availableNames : [])
+        .find((name) => (
+            String(name ?? '').trim().localeCompare(trimmedWantedName, undefined, { sensitivity: 'base' }) === 0
+        )) ?? '';
+}
+
+function requestEditorFlush(reason = 'manual') {
+    window.dispatchEvent(new CustomEvent('ne:flush-editor-state', {
+        detail: { reason },
+    }));
+}
+
+function normalizeTransferExportFormat(value) {
+    return String(value ?? '').trim().toLowerCase() === 'txt' ? 'txt' : 'md';
 }

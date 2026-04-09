@@ -40,8 +40,6 @@ const STORAGE_WINDOW_BOUNDS = 'note-editor.windowed-bounds.v1';
 const TOOLBAR_TITLE_MIN_WIDTH = 140;
 const TOOLBAR_COMPACT_TITLE_MIN_WIDTH = 168;
 const TOOLBAR_OPTIONAL_ACTIONS = ['tags', 'preview', 'source'];
-const MOBILE_SIDEBAR_OPEN_ZONE_MIN = 64;
-const MOBILE_SIDEBAR_OPEN_ZONE_MAX = 128;
 const MOBILE_SIDEBAR_CLOSE_ZONE_MIN = 72;
 const MOBILE_SIDEBAR_CLOSE_ZONE_MAX = 144;
 const MOBILE_SIDEBAR_GESTURE_START_DISTANCE = 8;
@@ -321,6 +319,7 @@ function updateToolbarState() {
 }
 
 function togglePreviewState() {
+    flushEditorState();
     panelState.toolbar.preview = !panelState.toolbar.preview;
     updateToolbarState();
     refreshEditorView();
@@ -647,21 +646,8 @@ function shouldStartSidebarOpenGesture(event, target) {
         return false;
     }
 
-    const swipeAreaRect = swipeArea.getBoundingClientRect();
-
     // Do not start over the OS-reserved back-gesture strip at the viewport left edge.
     if (event.clientX < MOBILE_NATIVE_EDGE_EXCLUSION) {
-        return false;
-    }
-
-    const openZoneWidth = getMobileSidebarGestureZoneWidth(
-        swipeAreaRect.width,
-        MOBILE_SIDEBAR_OPEN_ZONE_MIN,
-        MOBILE_SIDEBAR_OPEN_ZONE_MAX,
-        0.28,
-    );
-    const startsFromEdge = event.clientX <= swipeAreaRect.left + openZoneWidth;
-    if (!startsFromEdge) {
         return false;
     }
 
