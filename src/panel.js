@@ -2,11 +2,12 @@
 // Responsible for: the outer panel shell, toolbar mount point, and high-level
 // panel state wiring. Bounds math and pointer interactions live in helpers.
 
-import { getSidebarLabel } from './document-source.js';
+import { getSidebarLabel, normaliseDocumentSource } from './document-source.js';
 import {
     closeToolbarTermsMenu,
     flushEditorState,
     mountEditor,
+    requestTitleEditing,
     refreshEditorView,
     toggleToolbarTermsMenu,
 } from './editor.js';
@@ -106,28 +107,40 @@ export function createPanel() {
     return panelState.panelEl;
 }
 
-export function openPanel() {
-    if (!panelState.panelEl) {
+export function openPanel({ source = null } = {}) {
+    const panelEl = ensurePanelElement();
+    if (!panelEl) {
         return;
     }
 
     applyDefaultWindowBounds(panelState, STORAGE_WINDOW_BOUNDS);
     panelState.toolbar.menu = false;
-    panelState.panelEl.classList.add(CLASS_OPEN);
+    panelEl.classList.add(CLASS_OPEN);
     keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
-    if (!hasAppliedDefaultSource) {
+    const requestedSource = source ? normaliseDocumentSource(source) : '';
+    if (requestedSource) {
+        hasAppliedDefaultSource = true;
+        if (requestedSource !== getSessionState().activeSource) {
+            setActiveSource(requestedSource);
+        }
+    } else if (!hasAppliedDefaultSource) {
         hasAppliedDefaultSource = true;
         const { defaultSource } = getSettingsState();
         if (defaultSource !== getSessionState().activeSource) {
             setActiveSource(defaultSource);
         }
     }
-    syncLorebookRuntimeState(getSessionState().activeSource, { refresh: true });
+
+    const sessionState = getSessionState();
+    syncToolbarSource(sessionState, { forceRemount: shouldRemountPanelInternals() });
+    syncLorebookRuntimeState(sessionState.activeSource, { refresh: true });
+    refreshEditorView();
     updateToolbarState();
 }
 
 export function closePanel() {
-    if (!panelState.panelEl) {
+    const panelEl = ensurePanelElement();
+    if (!panelEl) {
         return;
     }
 
@@ -135,21 +148,38 @@ export function closePanel() {
     syncLorebookRuntimeState(getSessionState().activeSource, { open: false });
     panelState.toolbar.menu = false;
     setToolbarOverflowOpen(false);
-    panelState.panelEl.classList.remove(CLASS_OPEN);
+    panelEl.classList.remove(CLASS_OPEN);
     updateToolbarState();
 }
 
 export function togglePanel() {
-    if (!panelState.panelEl) {
+    const panelEl = ensurePanelElement();
+    if (!panelEl) {
         return;
     }
 
-    if (panelState.panelEl.classList.contains(CLASS_OPEN)) {
+    if (panelEl.classList.contains(CLASS_OPEN)) {
         closePanel();
         return;
     }
 
     openPanel();
+}
+
+function ensurePanelElement() {
+    if (panelState.panelEl?.isConnected) {
+        return panelState.panelEl;
+    }
+
+    return createPanel();
+}
+
+function shouldRemountPanelInternals() {
+    const toolbarHost = panelState.panelEl?.querySelector('#ne-toolbar-host');
+    const canvas = panelState.panelEl?.querySelector('#ne-canvas');
+    return !panelState.toolbarRefs?.root?.isConnected
+        || !toolbarHost?.firstElementChild
+        || !canvas?.firstElementChild;
 }
 
 function bindPanelEvents() {
@@ -252,6 +282,7 @@ function bindToolbarEvents() {
 
     initPanelDrag(panelState, {
         onExitFullscreen: exitFullscreen,
+        onTitleTap: requestTitleEditing,
         rememberWindowedBounds: rememberCurrentWindowBounds,
     });
     initPanelWheelResize(panelState, {

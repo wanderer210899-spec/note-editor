@@ -2263,14 +2263,17 @@
     padding: 0.75rem;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.6rem;
     font-size: var(--ne-font-body);
 }
 
 .ne-settings-panel__section {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    border: 1px solid var(--ne-border-soft);
+    border-radius: 0.8rem;
+    background: color-mix(in srgb, var(--ne-surface-card) 88%, transparent);
+    overflow: hidden;
 }
 
 .ne-settings-panel__section-head {
@@ -2281,12 +2284,35 @@
     flex-wrap: wrap;
 }
 
+.ne-settings-panel__section-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.8rem;
+    padding: 0.8rem 0.9rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.ne-settings-panel__section-toggle:hover,
+.ne-settings-panel__section-toggle:focus-visible {
+    background: color-mix(in srgb, var(--ne-surface) 82%, transparent);
+}
+
+.ne-settings-panel__section-body {
+    display: grid;
+    gap: 0.7rem;
+    padding: 0 0.9rem 0.9rem;
+}
+
 .ne-settings-panel__section-label {
-    font-size: var(--ne-font-overline);
+    font-size: var(--ne-font-ui);
     font-weight: 600;
-    color: var(--ne-label);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: var(--ne-text);
 }
 
 .ne-settings-panel__section-meta,
@@ -2354,6 +2380,63 @@
     font-size: inherit;
 }
 
+.ne-settings-panel__group {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.ne-settings-panel__group--tight {
+    gap: 0.35rem;
+}
+
+.ne-settings-panel__field-grid {
+    display: grid;
+    gap: 0.55rem;
+}
+
+.ne-settings-panel__field {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.ne-settings-panel__field-label {
+    font-size: var(--ne-font-label);
+    color: var(--ne-label);
+}
+
+.ne-settings-panel__shortcut-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.ne-settings-panel__shortcut-wrap--active .ne-settings-panel__shortcut-input {
+    border-color: color-mix(in srgb, var(--ne-accent) 72%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--ne-accent) 32%, transparent);
+}
+
+.ne-settings-panel__shortcut-input {
+    padding-right: 2.9rem;
+    cursor: default;
+}
+
+.ne-settings-panel__shortcut-actions {
+    position: absolute;
+    top: 50%;
+    right: 0.35rem;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    transform: translateY(-50%);
+}
+
+.ne-settings-panel__shortcut-btn {
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0.35rem;
+    border-radius: 0.6rem;
+}
+
 .ne-settings-panel__transfer-actions,
 .ne-settings-panel__mini-actions {
     display: flex;
@@ -2411,6 +2494,34 @@
 
 .ne-settings-panel__export-button {
     justify-content: center;
+}
+
+.ne-worldinfo-header-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin-inline-start: auto;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    line-height: 1;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.18)) 75%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, rgba(255, 255, 255, 0.08)) 78%, transparent);
+    color: inherit;
+    opacity: 0.78;
+    transition: opacity 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+
+.ne-worldinfo-header-button:hover,
+.ne-worldinfo-header-button:focus-visible {
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.ne-worldinfo-header-button > * {
+    pointer-events: none;
 }
 
 /* ─── Panel resize handles (mobile touch-action fix) ─────────────────────── */

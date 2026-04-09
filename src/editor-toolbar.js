@@ -13,10 +13,6 @@ export function handleTitleButtonActivation(event, titleButtonEl, startTitleEdit
         return;
     }
 
-    if (event.type === 'pointerup' && event.button !== 0) {
-        return;
-    }
-
     event.preventDefault();
     startTitleEditing();
 }

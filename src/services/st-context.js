@@ -5,6 +5,12 @@ const WORLDINFO_UPDATED_EVENT = 'worldinfo_updated';
 const WORLDINFO_MODULE_PATH = '/scripts/world-info.js';
 const WORLDINFO_GET_URL = '/api/worldinfo/get';
 const SETTINGS_GET_URL = '/api/settings/get';
+const WORLDINFO_HEADER_ROW_SELECTOR = '#WorldInfo .flex-container.alignitemscenter.gap10px';
+const EXTENSIONS_MENU_SELECTOR = '#extensionsMenu';
+const SLASH_COMMAND_NAME_PATTERN = /^[a-z0-9_-]+$/i;
+const QUICK_REPLY_ATTACH_SCOPE_GLOBAL = 'global';
+const QUICK_REPLY_ATTACH_SCOPE_CHAT = 'chat';
+const QUICK_REPLY_ATTACH_SCOPE_ALL = 'all';
 
 const WORLDINFO_CAPABILITIES = {
     load: {
@@ -56,6 +62,7 @@ const WORLDINFO_CAPABILITIES = {
 
 let cachedWorldInfoModule = null;
 let worldInfoModulePromise = null;
+const registeredSlashCommands = new Map();
 
 function getRawContext() {
     return window.SillyTavern?.getContext?.() ?? null;
@@ -497,6 +504,358 @@ export function subscribeToCharacterContextUpdates(listener) {
     };
 }
 
+export function getExtensionsMenuElement() {
+    return document.querySelector(EXTENSIONS_MENU_SELECTOR);
+}
+
+export function getWorldInfoHeaderRowElement() {
+    return document.querySelector(WORLDINFO_HEADER_ROW_SELECTOR);
+}
+
+export function observeWorldInfoMutations(listener) {
+    if (
+        typeof listener !== 'function'
+        || typeof MutationObserver !== 'function'
+        || typeof requestAnimationFrame !== 'function'
+    ) {
+        return null;
+    }
+
+    const documentBody = document.body;
+    if (!documentBody) {
+        return null;
+    }
+
+    let frameHandle = 0;
+    let observedPanel = null;
+    let disposed = false;
+
+    const emit = () => {
+        if (disposed || frameHandle) {
+            return;
+        }
+
+        frameHandle = requestAnimationFrame(() => {
+            frameHandle = 0;
+            if (disposed) {
+                return;
+            }
+
+            syncPanelObserver();
+            listener(getWorldInfoHeaderRowElement());
+        });
+    };
+
+    const panelObserver = new MutationObserver(() => {
+        emit();
+    });
+
+    function syncPanelObserver() {
+        const nextPanel = document.getElementById('WorldInfo');
+        if (nextPanel === observedPanel) {
+            return;
+        }
+
+        panelObserver.disconnect();
+        observedPanel = nextPanel instanceof HTMLElement ? nextPanel : null;
+        if (!observedPanel) {
+            return;
+        }
+
+        panelObserver.observe(observedPanel, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    const bodyObserver = new MutationObserver(() => {
+        emit();
+    });
+
+    bodyObserver.observe(documentBody, {
+        childList: true,
+        subtree: true,
+    });
+
+    emit();
+    return () => {
+        disposed = true;
+        if (frameHandle) {
+            cancelAnimationFrame(frameHandle);
+            frameHandle = 0;
+        }
+        bodyObserver.disconnect();
+        panelObserver.disconnect();
+    };
+}
+
+export function registerPluginSlashCommand({
+    name,
+    callback,
+    aliases = [],
+    helpString = '',
+    hidden = false,
+} = {}) {
+    const trimmedName = firstNonEmptyString(name);
+    if (!trimmedName || !SLASH_COMMAND_NAME_PATTERN.test(trimmedName) || typeof callback !== 'function') {
+        return false;
+    }
+
+    const parser = getRawContext()?.SlashCommandParser;
+    const SlashCommand = getRawContext()?.SlashCommand;
+    if (!parser || typeof parser.addCommandObject !== 'function' || !SlashCommand?.fromProps) {
+        return false;
+    }
+
+    const normalizedAliases = Array.isArray(aliases)
+        ? aliases
+            .map((alias) => firstNonEmptyString(alias))
+            .filter((alias) => alias && alias !== trimmedName)
+        : [];
+
+    const existing = getSlashCommandRecord(trimmedName);
+    if (existing && !registeredSlashCommands.has(trimmedName)) {
+        console.warn(`[NoteEditor] Could not register /${trimmedName}: another command already owns that name.`);
+        return false;
+    }
+
+    unregisterPluginSlashCommand(trimmedName);
+
+    const wrappedCallback = async (args = {}, value = '') => {
+        const result = await callback({
+            namedArgs: args ?? {},
+            unnamedArgs: typeof value === 'string' ? value : String(value ?? ''),
+            value,
+        });
+        return typeof result === 'string' ? result : '';
+    };
+
+    const commandObject = SlashCommand.fromProps({
+        name: trimmedName,
+        callback: wrappedCallback,
+        aliases: normalizedAliases,
+        helpString,
+        interruptsGeneration: false,
+        purgeFromMessage: true,
+        unnamedArgumentList: [],
+        namedArgumentList: [],
+        isHidden: Boolean(hidden),
+    });
+
+    parser.addCommandObject(commandObject);
+    registeredSlashCommands.set(trimmedName, {
+        commandObject,
+        aliases: normalizedAliases,
+    });
+    return true;
+}
+
+export function unregisterPluginSlashCommand(name) {
+    const trimmedName = firstNonEmptyString(name);
+    if (!trimmedName) {
+        return false;
+    }
+
+    const managedRecord = registeredSlashCommands.get(trimmedName);
+    if (!managedRecord?.commandObject) {
+        return false;
+    }
+
+    const parser = getRawContext()?.SlashCommandParser;
+    if (!parser?.commands) {
+        registeredSlashCommands.delete(trimmedName);
+        return false;
+    }
+
+    const currentRecord = getSlashCommandRecord(trimmedName);
+    if (currentRecord && currentRecord !== managedRecord.commandObject) {
+        registeredSlashCommands.delete(trimmedName);
+        return false;
+    }
+
+    deleteSlashCommandKey(parser.commands, trimmedName);
+    managedRecord.aliases.forEach((alias) => {
+        deleteSlashCommandKey(parser.commands, alias);
+    });
+
+    registeredSlashCommands.delete(trimmedName);
+    return true;
+}
+
+export function hasQuickReplyApi() {
+    return Boolean(getQuickReplyApi());
+}
+
+export function ensureQuickReplySetExists(name, options = {}) {
+    const api = getQuickReplyApi();
+    const trimmedName = firstNonEmptyString(name);
+    if (!api || !trimmedName) {
+        return null;
+    }
+
+    const existingSet = api.getSetByName?.(trimmedName);
+    if (existingSet) {
+        return existingSet;
+    }
+
+    return api.createSet?.(trimmedName, {
+        disableSend: Boolean(options.disableSend),
+        placeBeforeInput: Boolean(options.placeBeforeInput),
+        injectInput: Boolean(options.injectInput),
+    }) ?? null;
+}
+
+export function listQuickReplyButtons(setName) {
+    const set = getQuickReplySet(setName);
+    if (!set || !Array.isArray(set.qrList)) {
+        return [];
+    }
+
+    return set.qrList.map((item) => ({
+        id: item?.id,
+        label: firstNonEmptyString(item?.label),
+        automationId: firstNonEmptyString(item?.automationId),
+    }));
+}
+
+export function ensureQuickReplyButton(setName, {
+    label,
+    automationId,
+    message,
+    title = '',
+    icon = '',
+    showLabel = true,
+} = {}) {
+    const api = getQuickReplyApi();
+    const set = getQuickReplySet(setName);
+    const trimmedLabel = firstNonEmptyString(label);
+    const trimmedAutomationId = firstNonEmptyString(automationId);
+    if (!api || !set || !trimmedLabel || !trimmedAutomationId || !firstNonEmptyString(message)) {
+        return null;
+    }
+
+    const existing = findQuickReplyByAutomationId(set, trimmedAutomationId);
+    if (existing) {
+        if (doesQuickReplyMatch(existing, {
+            label: trimmedLabel,
+            automationId: trimmedAutomationId,
+            message,
+            title,
+            icon,
+            showLabel,
+        })) {
+            return existing;
+        }
+
+        if (typeof api.deleteQuickReply === 'function') {
+            api.deleteQuickReply(set.name, existing.label);
+        } else if (typeof existing.delete === 'function') {
+            existing.delete();
+        } else {
+            return existing;
+        }
+    }
+
+    return api.createQuickReply?.(set.name, trimmedLabel, {
+        message,
+        title,
+        icon,
+        showLabel: Boolean(showLabel),
+        automationId: trimmedAutomationId,
+    }) ?? null;
+}
+
+export function removeQuickReplyButtonByAutomationId(setName, automationId) {
+    const api = getQuickReplyApi();
+    const set = getQuickReplySet(setName);
+    const trimmedAutomationId = firstNonEmptyString(automationId);
+    if (!api || !set || !trimmedAutomationId) {
+        return false;
+    }
+
+    const existing = findQuickReplyByAutomationId(set, trimmedAutomationId);
+    if (!existing) {
+        return false;
+    }
+
+    if (typeof api.deleteQuickReply === 'function') {
+        api.deleteQuickReply(set.name, existing.label);
+        return true;
+    }
+
+    if (typeof existing.delete === 'function') {
+        existing.delete();
+        return true;
+    }
+
+    return false;
+}
+
+export function attachQuickReplySet(setName, scope) {
+    const api = getQuickReplyApi();
+    const set = getQuickReplySet(setName);
+    const normalizedScope = normalizeQuickReplyAttachScope(scope);
+    if (!api || !set || normalizedScope === QUICK_REPLY_ATTACH_SCOPE_ALL) {
+        return false;
+    }
+
+    if (normalizedScope === QUICK_REPLY_ATTACH_SCOPE_GLOBAL) {
+        const listedSets = api.listGlobalSets?.();
+        const attachedSets = Array.isArray(listedSets) ? listedSets : [];
+        if (!attachedSets.includes(set.name)) {
+            api.addGlobalSet?.(set.name);
+        }
+        return true;
+    }
+
+    if (normalizedScope === QUICK_REPLY_ATTACH_SCOPE_CHAT) {
+        const listedSets = api.listChatSets?.();
+        const attachedSets = Array.isArray(listedSets) ? listedSets : [];
+        if (!attachedSets.includes(set.name)) {
+            api.addChatSet?.(set.name);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+export function detachQuickReplySet(setName, scope = QUICK_REPLY_ATTACH_SCOPE_ALL) {
+    const api = getQuickReplyApi();
+    const set = getQuickReplySet(setName);
+    const normalizedScope = normalizeQuickReplyAttachScope(scope);
+    if (!api || !set) {
+        return false;
+    }
+
+    let changed = false;
+    if (
+        normalizedScope === QUICK_REPLY_ATTACH_SCOPE_ALL
+        || normalizedScope === QUICK_REPLY_ATTACH_SCOPE_GLOBAL
+    ) {
+        const listedSets = api.listGlobalSets?.();
+        const attachedSets = Array.isArray(listedSets) ? listedSets : [];
+        if (attachedSets.includes(set.name)) {
+            api.removeGlobalSet?.(set.name);
+            changed = true;
+        }
+    }
+
+    if (
+        normalizedScope === QUICK_REPLY_ATTACH_SCOPE_ALL
+        || normalizedScope === QUICK_REPLY_ATTACH_SCOPE_CHAT
+    ) {
+        const listedSets = api.listChatSets?.();
+        const attachedSets = Array.isArray(listedSets) ? listedSets : [];
+        if (attachedSets.includes(set.name)) {
+            api.removeChatSet?.(set.name);
+            changed = true;
+        }
+    }
+
+    return changed;
+}
+
 async function invokeWorldInfoCapability(capabilityName, {
     args = [],
     missingMessage = '',
@@ -598,6 +957,92 @@ function resolveWorldInfoCapabilitySync(capabilityName) {
     }
 
     return null;
+}
+
+function getSlashCommandRecord(name) {
+    const parser = getRawContext()?.SlashCommandParser;
+    const commands = parser?.commands;
+    if (!commands) {
+        return null;
+    }
+
+    if (commands instanceof Map) {
+        return commands.get(name) ?? null;
+    }
+
+    if (typeof commands === 'object') {
+        return commands[name] ?? null;
+    }
+
+    return null;
+}
+
+function deleteSlashCommandKey(commands, name) {
+    if (!commands || !name) {
+        return;
+    }
+
+    if (commands instanceof Map) {
+        commands.delete(name);
+        return;
+    }
+
+    if (typeof commands === 'object') {
+        delete commands[name];
+    }
+}
+
+function getQuickReplyApi() {
+    return window.quickReplyApi && typeof window.quickReplyApi === 'object'
+        ? window.quickReplyApi
+        : null;
+}
+
+function getQuickReplySet(name) {
+    const api = getQuickReplyApi();
+    const trimmedName = firstNonEmptyString(name);
+    if (!api || !trimmedName) {
+        return null;
+    }
+
+    return api.getSetByName?.(trimmedName) ?? null;
+}
+
+function findQuickReplyByAutomationId(set, automationId) {
+    if (!set || !Array.isArray(set.qrList)) {
+        return null;
+    }
+
+    return set.qrList.find((item) => firstNonEmptyString(item?.automationId) === automationId) ?? null;
+}
+
+function doesQuickReplyMatch(item, {
+    label,
+    automationId,
+    message,
+    title,
+    icon,
+    showLabel,
+} = {}) {
+    return firstNonEmptyString(item?.label) === firstNonEmptyString(label)
+        && firstNonEmptyString(item?.automationId) === firstNonEmptyString(automationId)
+        && firstNonEmptyString(item?.message) === firstNonEmptyString(message)
+        && firstNonEmptyString(item?.title) === firstNonEmptyString(title)
+        && firstNonEmptyString(item?.icon) === firstNonEmptyString(icon)
+        && Boolean(item?.showLabel) === Boolean(showLabel);
+}
+
+function normalizeQuickReplyAttachScope(scope) {
+    const trimmedScope = firstNonEmptyString(scope);
+    if (trimmedScope === QUICK_REPLY_ATTACH_SCOPE_GLOBAL) {
+        return QUICK_REPLY_ATTACH_SCOPE_GLOBAL;
+    }
+
+    if (trimmedScope === QUICK_REPLY_ATTACH_SCOPE_CHAT) {
+        return QUICK_REPLY_ATTACH_SCOPE_CHAT;
+    }
+
+    return QUICK_REPLY_ATTACH_SCOPE_ALL;
 }
 
 function resolveFunctionByName(target, names) {

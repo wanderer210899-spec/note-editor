@@ -24,7 +24,7 @@ const WHEEL_RESIZE_SCALE_FACTOR = 1.08;
 
 let activeInteractionCount = 0;
 
-export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds } = {}) {
+export function initPanelDrag(state, { onExitFullscreen, onTitleTap, rememberWindowedBounds } = {}) {
     const refs = state.toolbarRefs;
     if (!refs?.root) {
         return;
@@ -38,6 +38,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
     let pendingDrag = false;
     let draggingFromTitle = false;
     let interactionLocked = false;
+    let pointerCaptured = false;
 
     refs.root.addEventListener('pointerdown', (event) => {
         if (shouldUseMobileTouchFallbackForPointer(event)) {
@@ -67,14 +68,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
         startY = event.clientY;
         pendingDrag = true;
         draggingFromTitle = Boolean(titleButton);
-
-        try {
-            refs.root.setPointerCapture?.(event.pointerId);
-        } catch (error) {
-            if (error?.name !== 'NotFoundError') {
-                console.warn('[NoteEditor] Pointer capture failed on toolbar drag pointerdown.', error);
-            }
-        }
+        pointerCaptured = false;
     });
 
     refs.root.addEventListener('pointermove', (event) => {
@@ -99,6 +93,15 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
 
             if (draggingFromTitle && refs.titleButton) {
                 refs.titleButton.dataset.skipClick = 'true';
+            }
+
+            try {
+                refs.root.setPointerCapture?.(event.pointerId);
+                pointerCaptured = true;
+            } catch (error) {
+                if (error?.name !== 'NotFoundError') {
+                    console.warn('[NoteEditor] Pointer capture failed on toolbar drag pointermove.', error);
+                }
             }
 
             beginPointerInteraction(state.panelEl, 'grabbing');
@@ -132,10 +135,12 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
             return;
         }
 
-        try {
-            refs.root.releasePointerCapture?.(event.pointerId);
-        } catch (error) {
-            console.warn('[NoteEditor] Pointer capture release failed on toolbar drag end.', error);
+        if (pointerCaptured) {
+            try {
+                refs.root.releasePointerCapture?.(event.pointerId);
+            } catch (error) {
+                console.warn('[NoteEditor] Pointer capture release failed on toolbar drag end.', error);
+            }
         }
 
         if (draggingFromTitle) {
@@ -145,6 +150,7 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
         dragPointerId = null;
         pendingDrag = false;
         draggingFromTitle = false;
+        pointerCaptured = false;
         if (interactionLocked) {
             endPointerInteraction(state.panelEl);
             interactionLocked = false;
@@ -187,6 +193,8 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
                 return;
             }
 
+            const shouldActivateTitle = touchPendingDrag && touchDraggingFromTitle;
+
             if (touchDraggingFromTitle) {
                 clearDeferredTitleSkipClick(refs.titleButton);
             }
@@ -202,6 +210,16 @@ export function initPanelDrag(state, { onExitFullscreen, rememberWindowedBounds 
             document.removeEventListener('touchmove', moveTouchDrag);
             document.removeEventListener('touchend', endTouchDrag);
             document.removeEventListener('touchcancel', endTouchDrag);
+
+            if (shouldActivateTitle) {
+                if (refs.titleButton) {
+                    refs.titleButton.dataset.skipClick = 'true';
+                    clearDeferredTitleSkipClick(refs.titleButton);
+                }
+                window.setTimeout(() => {
+                    onTitleTap?.();
+                }, 0);
+            }
         };
 
         const moveTouchDrag = (moveEvent) => {

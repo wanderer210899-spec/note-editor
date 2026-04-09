@@ -128,7 +128,7 @@ export function renderSidebarFilters(model) {
 
 export function renderSidebarBody(model, source = 'note') {
     if (model.settingsPanelOpen) {
-        return renderSettingsPanel(model.settingsState, model.transferModel);
+        return renderSettingsPanel(model.settingsState, model.transferModel, model.settingsUiState);
     }
 
     const normalizedSource = normaliseDocumentSource(source);

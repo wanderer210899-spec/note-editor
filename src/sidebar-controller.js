@@ -30,6 +30,7 @@ import {
     updateSidebarSearchSelection,
 } from './sidebar-search.js';
 import { beginSidebarSwipe, updateSidebarSwipe } from './sidebar-touch.js';
+import { createShortcutBindingFromEvent } from './integrations/shortcut-utils.js';
 import {
     renderDeletePanelLorebookFiles,
     renderLorebookPickerOptions,
@@ -45,12 +46,22 @@ import {
     previewSettingsPanelFontScale,
     setSettingsPanelFontScale,
     subscribeSettings,
+    setSettingsDesktopShortcutCreateCurrent,
+    setSettingsDesktopShortcutOpenLorebook,
+    setSettingsDesktopShortcutOpenNotes,
+    setSettingsDesktopShortcutsEnabled,
     setSettingsLanguage,
     setSettingsDefaultSource,
     setSettingsNewEntryExcludeRecursion,
     setSettingsNewEntryPreventRecursion,
+    setSettingsQuickReplyEnabled,
+    setSettingsQuickReplyIncludeLore,
+    setSettingsQuickReplyIncludeNew,
+    setSettingsQuickReplyIncludeNotes,
     setSettingsShowLorebookEntryCounters,
     setSettingsTransferOverwriteExisting,
+    setSettingsWandMenuEnabled,
+    setSettingsWorldInfoButtonEnabled,
 } from './state/settings-store.js';
 
 let rootEl = null;
@@ -89,8 +100,10 @@ export function mountSidebarController({ root, sidebarRoot, onCloseTagsMenu, onC
     mountSidebarShell(getSessionState().activeSource);
     bindSidebarEvents();
     subscribeSettings(() => {
+        const preservedViewState = captureSidebarBodyViewState();
         mountSidebarShell(mountedSidebarSource, { preservePanelState: true });
         renderSidebarController();
+        restoreSidebarBodyViewState(preservedViewState);
     });
 }
 
@@ -145,6 +158,11 @@ export function renderSidebarController() {
         settingsPanelOpen: uiState.settingsPanelOpen,
         settingsState: getSettingsState(),
         transferModel,
+        settingsUiState: {
+            activeShortcutCaptureField: uiState.activeShortcutCaptureField,
+            activeShortcutCaptureValue: uiState.activeShortcutCaptureDraftValue,
+            openSettingsSection: uiState.openSettingsSection,
+        },
     };
     currentSidebarModel = model;
 
@@ -365,6 +383,24 @@ function renderSidebarTools(model, activeSource) {
 }
 
 function handleSidebarClick(event) {
+    if (isSettingsPanelTarget(event.target)) {
+        const actionButton = event.target.closest('[data-action]');
+        if (actionButton && handleSettingsShortcutAction(actionButton, event.target)) {
+            return;
+        }
+        if (actionButton && handleSidebarAction(actionButton.dataset.action, actionButton, {
+            createNote: createNoteFromSidebar,
+            getUiState: () => uiState,
+            renderSidebarController,
+            resetSidebarControllerState,
+            closeSidebar,
+            applySearchTagSuggestion,
+        })) {
+            return;
+        }
+        return;
+    }
+
     const swipeRow = event.target.closest('[data-swipe-row-key]');
     if (
         swipeRow
@@ -377,6 +413,9 @@ function handleSidebarClick(event) {
     }
 
     const actionButton = event.target.closest('[data-action]');
+    if (actionButton && handleSettingsShortcutAction(actionButton, event.target)) {
+        return;
+    }
     if (actionButton && handleSidebarAction(actionButton.dataset.action, actionButton, {
         createNote: createNoteFromSidebar,
         getUiState: () => uiState,
@@ -397,6 +436,11 @@ function handleSidebarClick(event) {
 
 function handleSidebarPointerDown(event) {
     uiState.swipeConsumedRowKey = '';
+
+    if (isSettingsPanelTarget(event.target)) {
+        clearTouchSwipeState();
+        return;
+    }
 
     if (event.target.closest('[data-field-action]')) {
         clearTouchSwipeState();
@@ -558,6 +602,46 @@ function handleSettingsFieldChange(field, target) {
         setSettingsShowLorebookEntryCounters(target.checked);
         return;
     }
+    if (field === 'integrationWandMenuEnabled') {
+        setSettingsWandMenuEnabled(target.checked);
+        return;
+    }
+    if (field === 'integrationDesktopShortcutsEnabled') {
+        setSettingsDesktopShortcutsEnabled(target.checked);
+        return;
+    }
+    if (field === 'integrationDesktopShortcutOpenNotes') {
+        setSettingsDesktopShortcutOpenNotes(target.value);
+        return;
+    }
+    if (field === 'integrationDesktopShortcutOpenLorebook') {
+        setSettingsDesktopShortcutOpenLorebook(target.value);
+        return;
+    }
+    if (field === 'integrationDesktopShortcutCreateCurrent') {
+        setSettingsDesktopShortcutCreateCurrent(target.value);
+        return;
+    }
+    if (field === 'integrationWorldInfoButtonEnabled') {
+        setSettingsWorldInfoButtonEnabled(target.checked);
+        return;
+    }
+    if (field === 'integrationQuickReplyEnabled') {
+        setSettingsQuickReplyEnabled(target.checked);
+        return;
+    }
+    if (field === 'integrationQuickReplyIncludeNotes') {
+        setSettingsQuickReplyIncludeNotes(target.checked);
+        return;
+    }
+    if (field === 'integrationQuickReplyIncludeLore') {
+        setSettingsQuickReplyIncludeLore(target.checked);
+        return;
+    }
+    if (field === 'integrationQuickReplyIncludeNew') {
+        setSettingsQuickReplyIncludeNew(target.checked);
+        return;
+    }
     if (field === 'transferOverwriteExisting') {
         setSettingsTransferOverwriteExisting(target.checked);
     }
@@ -573,6 +657,10 @@ function handleSettingsPreviewInput(field, target) {
 }
 
 function handleSidebarBlur(event) {
+    if (handleShortcutCaptureBlur(event.target)) {
+        return;
+    }
+
     const settingsPreviewField = event.target?.dataset?.settingsPreviewField;
     if (settingsPreviewField === 'panelFontScale') {
         setSettingsPanelFontScale(event.target.value);
@@ -623,6 +711,10 @@ function handleSidebarFocusOut(event) {
 }
 
 function handleSidebarKeyDown(event) {
+    if (handleShortcutCaptureKeyDown(event)) {
+        return;
+    }
+
     const editableField = event.target.closest('[data-field-action]');
     if (editableField) {
         if (event.key === 'Enter') {
@@ -760,7 +852,151 @@ function createDefaultSidebarUiState() {
             selectedLorebookIds: new Set(),
             selectedEntryKeys: new Set(),
         },
+        openSettingsSection: '',
+        activeShortcutCaptureField: '',
+        activeShortcutCaptureDraftValue: null,
     };
+}
+
+function handleSettingsShortcutAction(actionButton, target) {
+    const action = String(actionButton?.dataset?.action ?? '').trim();
+    const captureField = String(actionButton?.dataset?.shortcutCaptureField ?? '').trim();
+    const settingsSection = String(actionButton?.dataset?.settingsSection ?? '').trim();
+
+    if (action === 'toggle-settings-section') {
+        uiState.openSettingsSection = uiState.openSettingsSection === settingsSection
+            ? ''
+            : settingsSection;
+        cancelShortcutCapture({ rerender: false });
+        rerenderSidebarPreservingViewState();
+        return true;
+    }
+
+    if (!captureField) {
+        return false;
+    }
+
+    if (action === 'start-shortcut-capture') {
+        if (
+            uiState.activeShortcutCaptureField
+            && uiState.activeShortcutCaptureField !== captureField
+        ) {
+            finishShortcutCapture({ rerender: false });
+        }
+
+        uiState.activeShortcutCaptureField = captureField;
+        uiState.activeShortcutCaptureDraftValue = null;
+        uiState.pendingBodyInputFocus = {
+            key: `settings-shortcut:${captureField}`,
+            start: 0,
+            end: 0,
+        };
+        rerenderSidebarPreservingViewState();
+        return true;
+    }
+
+    if (action === 'stop-shortcut-capture') {
+        if (uiState.activeShortcutCaptureField === captureField) {
+            finishShortcutCapture({ rerender: true });
+        }
+        return true;
+    }
+
+    return false;
+}
+
+function handleShortcutCaptureKeyDown(event) {
+    const captureField = String(event.target?.dataset?.shortcutCaptureField ?? '').trim();
+    if (!captureField || uiState.activeShortcutCaptureField !== captureField) {
+        return false;
+    }
+
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelShortcutCapture({ rerender: true });
+        return true;
+    }
+
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        commitShortcutCapture({ rerender: true });
+        return true;
+    }
+
+    if (event.key === 'Backspace' || event.key === 'Delete') {
+        event.preventDefault();
+        rememberSidebarBodyInputFocus(event.target);
+        uiState.activeShortcutCaptureDraftValue = '';
+        rerenderSidebarPreservingViewState();
+        return true;
+    }
+
+    const binding = createShortcutBindingFromEvent(event);
+    if (!binding) {
+        event.preventDefault();
+        return true;
+    }
+
+    event.preventDefault();
+    rememberSidebarBodyInputFocus(event.target);
+    uiState.activeShortcutCaptureDraftValue = binding;
+    rerenderSidebarPreservingViewState();
+    return true;
+}
+
+function applyShortcutCaptureValue(captureField, value) {
+    if (captureField === 'openNotes') {
+        setSettingsDesktopShortcutOpenNotes(value);
+        return;
+    }
+    if (captureField === 'openLorebook') {
+        setSettingsDesktopShortcutOpenLorebook(value);
+        return;
+    }
+    if (captureField === 'createCurrent') {
+        setSettingsDesktopShortcutCreateCurrent(value);
+    }
+}
+
+function commitShortcutCapture({ rerender = false } = {}) {
+    const captureField = uiState.activeShortcutCaptureField;
+    const draftValue = uiState.activeShortcutCaptureDraftValue;
+    if (!captureField) {
+        return false;
+    }
+
+    uiState.activeShortcutCaptureField = '';
+    uiState.activeShortcutCaptureDraftValue = null;
+
+    if (draftValue !== null) {
+        applyShortcutCaptureValue(captureField, draftValue);
+    }
+
+    if (rerender) {
+        rerenderSidebarPreservingViewState();
+    }
+    return true;
+}
+
+function finishShortcutCapture({ rerender = false } = {}) {
+    if (uiState.activeShortcutCaptureDraftValue !== null) {
+        return commitShortcutCapture({ rerender });
+    }
+
+    return cancelShortcutCapture({ rerender });
+}
+
+function cancelShortcutCapture({ rerender = false } = {}) {
+    if (!uiState.activeShortcutCaptureField && uiState.activeShortcutCaptureDraftValue === null) {
+        return false;
+    }
+
+    uiState.activeShortcutCaptureField = '';
+    uiState.activeShortcutCaptureDraftValue = null;
+    if (rerender) {
+        rerenderSidebarPreservingViewState();
+    }
+    return true;
 }
 
 function restoreSidebarSearchFocus() {
@@ -830,6 +1066,37 @@ function restorePendingSidebarBodyInputFocus() {
 
     requestAnimationFrame(() => tryRestore());
     return true;
+}
+
+function captureSidebarBodyViewState() {
+    const activeInput = sidebarRootEl?.querySelector(':focus');
+    if (activeInput instanceof HTMLInputElement || activeInput instanceof HTMLTextAreaElement) {
+        rememberSidebarBodyInputFocus(activeInput);
+    }
+
+    return {
+        scrollTop: sidebarBodyEl?.scrollTop ?? 0,
+    };
+}
+
+function restoreSidebarBodyViewState(viewState) {
+    if (!sidebarBodyEl?.isConnected || !viewState) {
+        return;
+    }
+
+    requestAnimationFrame(() => {
+        if (!sidebarBodyEl?.isConnected) {
+            return;
+        }
+
+        sidebarBodyEl.scrollTop = Number(viewState.scrollTop) || 0;
+    });
+}
+
+function rerenderSidebarPreservingViewState() {
+    const preservedViewState = captureSidebarBodyViewState();
+    renderSidebarController();
+    restoreSidebarBodyViewState(preservedViewState);
 }
 
 function renderDeletePanelLorebookResults() {
@@ -981,4 +1248,23 @@ function syncSettingsPreviewValue(field, value) {
 
     const percent = Math.round(Number(value) * 100);
     labelEl.textContent = `${percent}%`;
+}
+
+function isSettingsPanelTarget(target) {
+    return target instanceof Element && Boolean(target.closest('.ne-settings-panel'));
+}
+
+function handleShortcutCaptureBlur(target) {
+    const captureField = String(target?.dataset?.shortcutCaptureField ?? '').trim();
+    if (!captureField || uiState.activeShortcutCaptureField !== captureField) {
+        return false;
+    }
+
+    const pendingFocusKey = String(uiState.pendingBodyInputFocus?.key ?? '').trim();
+    if (pendingFocusKey === `settings-shortcut:${captureField}`) {
+        return false;
+    }
+
+    finishShortcutCapture({ rerender: true });
+    return true;
 }

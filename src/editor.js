@@ -113,7 +113,7 @@ export function mountEditor(root, { toolbar } = {}) {
         return;
     }
 
-    if (editorState.rootEl === root) {
+    if (editorState.rootEl === root && hasMountedEditorShell(root)) {
         syncToolbarRefs(toolbar);
         return;
     }
@@ -139,6 +139,15 @@ export function mountEditor(root, { toolbar } = {}) {
     bindGlobalEvents();
 }
 
+function hasMountedEditorShell(root) {
+    return Boolean(
+        root?.firstElementChild
+        && editorState.editorShellEl?.isConnected
+        && editorState.sidebarRootEl?.isConnected
+        && editorState.contentInputEl?.isConnected
+    );
+}
+
 export function flushEditorState() {
     flushPendingContentSync();
     flushActiveDocumentAutosave();
@@ -150,6 +159,10 @@ export function toggleToolbarTermsMenu(anchorEl = null) {
 
 export function closeToolbarTermsMenu() {
     closeTagsMenu();
+}
+
+export function requestTitleEditing() {
+    startTitleEditing();
 }
 
 export function refreshEditorView() {
@@ -269,7 +282,6 @@ function bindEditorEvents() {
 function bindToolbarRefEvents() {
     if (editorState.toolbarTitleEl && !boundToolbarButtons.has(editorState.toolbarTitleEl)) {
         boundToolbarButtons.add(editorState.toolbarTitleEl);
-        editorState.toolbarTitleEl.addEventListener('pointerup', handleTitleActivation);
         editorState.toolbarTitleEl.addEventListener('click', handleTitleActivation);
         editorState.toolbarTitleEl.addEventListener('keydown', handleToolbarTitleButtonKeyDown);
     }
@@ -302,7 +314,8 @@ function handleToolbarTitleButtonKeyDown(event) {
 }
 
 function handleToolbarTitleInput() {
-    updateCurrentDocument({ title: editorState.toolbarTitleInputEl?.value ?? '' });
+    // Keep title typing local until commit so store-level untitled/unique-name rules
+    // do not rewrite the user's text mid-edit.
 }
 
 function handleToolbarTitleBlur() {
@@ -421,6 +434,8 @@ function renderEditor(documentState, sessionState) {
     const previewMode = isPreviewMode();
     const activeSource = sessionState.activeSource;
     const currentDocumentId = currentDocument?.id ?? null;
+    const titleInputVisible = Boolean(editorState.toolbarTitleInputEl && !editorState.toolbarTitleInputEl.hidden);
+    const editingCurrentTitle = titleInputVisible && editorState.titleEditingDocumentId === currentDocumentId;
 
     syncEditorChromeLabels();
 
@@ -470,7 +485,9 @@ function renderEditor(documentState, sessionState) {
     if (hasCurrentNote) {
         renderDocumentMeta(currentDocument);
         syncFieldValue(editorState.contentInputEl, getRenderedContentValue(currentDocument));
-        syncFieldValue(editorState.toolbarTitleInputEl, currentDocument.title);
+        if (!editingCurrentTitle) {
+            syncFieldValue(editorState.toolbarTitleInputEl, currentDocument.title);
+        }
         syncPreviewContent(getPreviewDocument(currentDocument), previewMode);
     } else {
         clearPendingContentSyncState();
