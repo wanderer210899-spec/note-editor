@@ -35,10 +35,208 @@ export function initPanelDrag(state, { onExitFullscreen, onTitleTap, rememberWin
     let grabY = 0;
     let startX = 0;
     let startY = 0;
+    let lastClientX = 0;
+    let lastClientY = 0;
     let pendingDrag = false;
     let draggingFromTitle = false;
     let interactionLocked = false;
     let pointerCaptured = false;
+    let desktopDragListenersBound = false;
+
+    const hasDesktopDragMovedEnough = (clientX, clientY) => {
+        return Math.hypot(clientX - startX, clientY - startY) >= RESIZE_MOVE_THRESHOLD;
+    };
+
+    const updateDesktopDragPosition = (clientX, clientY) => {
+        const rect = getPanelRect(state.panelEl);
+        if (!rect) {
+            return;
+        }
+
+        const nextBounds = getClampedBounds(state, {
+            width: rect.width,
+            height: rect.height,
+            left: clientX - grabX,
+            top: clientY - grabY,
+        });
+
+        setElementStyleProperty(state.panelEl, 'left', `${Math.round(nextBounds.left)}px`);
+        setElementStyleProperty(state.panelEl, 'top', `${Math.round(nextBounds.top)}px`);
+        rememberWindowedBounds?.();
+    };
+
+    const releaseDesktopPointerCapture = (pointerId = dragPointerId) => {
+        if (!pointerCaptured || pointerId === null) {
+            return;
+        }
+
+        try {
+            refs.root.releasePointerCapture?.(pointerId);
+        } catch (error) {
+            if (error?.name !== 'NotFoundError' && error?.name !== 'InvalidPointerId') {
+                console.warn('[NoteEditor] Pointer capture release failed on toolbar drag end.', error);
+            }
+        }
+    };
+
+    const beginDesktopDrag = (event) => {
+        if (!pendingDrag) {
+            return;
+        }
+
+        pendingDrag = false;
+        if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
+            onExitFullscreen?.();
+        }
+
+        if (draggingFromTitle && refs.titleButton) {
+            refs.titleButton.dataset.skipClick = 'true';
+        }
+
+        try {
+            refs.root.setPointerCapture?.(event.pointerId);
+            pointerCaptured = true;
+        } catch (error) {
+            if (error?.name !== 'NotFoundError') {
+                console.warn('[NoteEditor] Pointer capture failed on toolbar drag pointermove.', error);
+            }
+        }
+
+        beginPointerInteraction(state.panelEl, 'grabbing');
+        interactionLocked = true;
+    };
+
+    const removeDesktopDragListeners = () => {
+        if (!desktopDragListenersBound) {
+            return;
+        }
+
+        desktopDragListenersBound = false;
+        document.removeEventListener('pointermove', handleDesktopDragMove, true);
+        document.removeEventListener('pointerup', endDesktopDrag, true);
+        document.removeEventListener('pointercancel', endDesktopDrag, true);
+        window.removeEventListener('blur', handleDesktopDragWindowBlur);
+        document.removeEventListener('visibilitychange', handleDesktopDragVisibilityChange, true);
+        refs.root.removeEventListener('lostpointercapture', handleDesktopLostPointerCapture);
+    };
+
+    const resetDesktopDragState = () => {
+        dragPointerId = null;
+        pendingDrag = false;
+        draggingFromTitle = false;
+        pointerCaptured = false;
+        if (interactionLocked) {
+            endPointerInteraction(state.panelEl);
+            interactionLocked = false;
+        }
+    };
+
+    const cancelDesktopDrag = () => {
+        if (dragPointerId === null && !pendingDrag && !interactionLocked) {
+            return;
+        }
+
+        releaseDesktopPointerCapture();
+        if (draggingFromTitle) {
+            clearDeferredTitleSkipClick(refs.titleButton);
+        }
+
+        removeDesktopDragListeners();
+        resetDesktopDragState();
+    };
+
+    const endDesktopDrag = (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
+        if (event.pointerId !== dragPointerId) {
+            return;
+        }
+
+        lastClientX = event.clientX;
+        lastClientY = event.clientY;
+        const movedEnough = hasDesktopDragMovedEnough(event.clientX, event.clientY);
+        if (pendingDrag && movedEnough) {
+            beginDesktopDrag(event);
+        }
+
+        if (interactionLocked) {
+            updateDesktopDragPosition(event.clientX, event.clientY);
+        }
+
+        releaseDesktopPointerCapture(event.pointerId);
+
+        if (draggingFromTitle) {
+            clearDeferredTitleSkipClick(refs.titleButton);
+        }
+
+        removeDesktopDragListeners();
+        resetDesktopDragState();
+    };
+
+    const handleDesktopDragMove = (event) => {
+        if (shouldUseMobileTouchFallbackForPointer(event)) {
+            return;
+        }
+
+        if (event.pointerId !== dragPointerId) {
+            return;
+        }
+
+        lastClientX = event.clientX;
+        lastClientY = event.clientY;
+
+        if (event.pointerType === 'mouse' && event.buttons === 0) {
+            endDesktopDrag(event);
+            return;
+        }
+
+        if (pendingDrag && !hasDesktopDragMovedEnough(event.clientX, event.clientY)) {
+            return;
+        }
+
+        if (pendingDrag) {
+            beginDesktopDrag(event);
+        }
+
+        if (!interactionLocked) {
+            return;
+        }
+
+        event.preventDefault();
+        updateDesktopDragPosition(event.clientX, event.clientY);
+    };
+
+    const handleDesktopDragWindowBlur = () => {
+        cancelDesktopDrag();
+    };
+
+    const handleDesktopDragVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') {
+            cancelDesktopDrag();
+        }
+    };
+
+    const handleDesktopLostPointerCapture = (event) => {
+        if (event.pointerId === dragPointerId) {
+            cancelDesktopDrag();
+        }
+    };
+
+    const bindDesktopDragListeners = () => {
+        if (desktopDragListenersBound) {
+            return;
+        }
+
+        desktopDragListenersBound = true;
+        document.addEventListener('pointermove', handleDesktopDragMove, true);
+        document.addEventListener('pointerup', endDesktopDrag, true);
+        document.addEventListener('pointercancel', endDesktopDrag, true);
+        window.addEventListener('blur', handleDesktopDragWindowBlur);
+        document.addEventListener('visibilitychange', handleDesktopDragVisibilityChange, true);
+        refs.root.addEventListener('lostpointercapture', handleDesktopLostPointerCapture);
+    };
 
     refs.root.addEventListener('pointerdown', (event) => {
         if (shouldUseMobileTouchFallbackForPointer(event)) {
@@ -61,104 +259,20 @@ export function initPanelDrag(state, { onExitFullscreen, onTitleTap, rememberWin
             return;
         }
 
+        removeDesktopDragListeners();
+        resetDesktopDragState();
         dragPointerId = event.pointerId;
         grabX = event.clientX - rect.left;
         grabY = event.clientY - rect.top;
         startX = event.clientX;
         startY = event.clientY;
+        lastClientX = event.clientX;
+        lastClientY = event.clientY;
         pendingDrag = true;
         draggingFromTitle = Boolean(titleButton);
         pointerCaptured = false;
+        bindDesktopDragListeners();
     });
-
-    refs.root.addEventListener('pointermove', (event) => {
-        if (shouldUseMobileTouchFallbackForPointer(event)) {
-            return;
-        }
-
-        if (event.pointerId !== dragPointerId) {
-            return;
-        }
-
-        const movedEnough = Math.hypot(event.clientX - startX, event.clientY - startY) >= RESIZE_MOVE_THRESHOLD;
-        if (pendingDrag && !movedEnough) {
-            return;
-        }
-
-        if (pendingDrag) {
-            pendingDrag = false;
-            if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
-                onExitFullscreen?.();
-            }
-
-            if (draggingFromTitle && refs.titleButton) {
-                refs.titleButton.dataset.skipClick = 'true';
-            }
-
-            try {
-                refs.root.setPointerCapture?.(event.pointerId);
-                pointerCaptured = true;
-            } catch (error) {
-                if (error?.name !== 'NotFoundError') {
-                    console.warn('[NoteEditor] Pointer capture failed on toolbar drag pointermove.', error);
-                }
-            }
-
-            beginPointerInteraction(state.panelEl, 'grabbing');
-            interactionLocked = true;
-        }
-
-        const rect = getPanelRect(state.panelEl);
-        if (!rect) {
-            return;
-        }
-
-        event.preventDefault();
-        const nextBounds = getClampedBounds(state, {
-            width: rect.width,
-            height: rect.height,
-            left: event.clientX - grabX,
-            top: event.clientY - grabY,
-        });
-
-        setElementStyleProperty(state.panelEl, 'left', `${Math.round(nextBounds.left)}px`);
-        setElementStyleProperty(state.panelEl, 'top', `${Math.round(nextBounds.top)}px`);
-        rememberWindowedBounds?.();
-    });
-
-    const endDrag = (event) => {
-        if (shouldUseMobileTouchFallbackForPointer(event)) {
-            return;
-        }
-
-        if (event.pointerId !== dragPointerId) {
-            return;
-        }
-
-        if (pointerCaptured) {
-            try {
-                refs.root.releasePointerCapture?.(event.pointerId);
-            } catch (error) {
-                console.warn('[NoteEditor] Pointer capture release failed on toolbar drag end.', error);
-            }
-        }
-
-        if (draggingFromTitle) {
-            clearDeferredTitleSkipClick(refs.titleButton);
-        }
-
-        dragPointerId = null;
-        pendingDrag = false;
-        draggingFromTitle = false;
-        pointerCaptured = false;
-        if (interactionLocked) {
-            endPointerInteraction(state.panelEl);
-            interactionLocked = false;
-        }
-    };
-
-    refs.root.addEventListener('pointerup', endDrag);
-    refs.root.addEventListener('pointercancel', endDrag);
 
     refs.root.addEventListener('touchstart', (event) => {
         if (!shouldUseMobileTouchFallback() || event.touches.length !== 1) {

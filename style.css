@@ -143,6 +143,22 @@
     border-radius: 0;
 }
 
+/* Guard the header against host-side preset UI `.hide()` calls.
+   Note Editor still borrows ST structure for theme compatibility, so we
+   explicitly reassert the core toolbar layout on our own subtree. */
+#ne-toolbar-host {
+    display: block !important;
+}
+
+#ne-toolbar-host > .ne-toolbar {
+    display: flex !important;
+}
+
+#ne-toolbar-host > .ne-toolbar > .ne-toolbar__title-wrap,
+#ne-toolbar-host > .ne-toolbar > .ne-toolbar__actions {
+    display: flex !important;
+}
+
 .ne-toolbar {
     position: relative;
     display: flex;

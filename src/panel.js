@@ -65,6 +65,8 @@ const panelState = {
     unsubscribePanelFontScale: null,
     toolbarLayoutFrame: 0,
     toolbarLayoutObserver: null,
+    toolbarHealthObserver: null,
+    toolbarHealthFrame: 0,
     lastSettingsState: null,
     mobileSidebarGesture: null,
 };
@@ -104,6 +106,7 @@ export function createPanel() {
     bindViewportEvents();
     bindSessionEvents();
     bindSettingsEvents();
+    scheduleToolbarHealthRepair();
     return panelState.panelEl;
 }
 
@@ -262,10 +265,12 @@ function syncToolbarSource(sessionState, { forceRemount = false } = {}) {
     panelState.toolbar.overflowOpen = false;
     bindToolbarEvents();
     observeToolbarLayout();
+    observeToolbarHealth();
     mountEditor(panelState.panelEl?.querySelector('#ne-canvas'), { toolbar: panelState.toolbarRefs });
     updateToolbarState();
     refreshEditorView();
     scheduleToolbarLayout();
+    scheduleToolbarHealthRepair();
 }
 
 function bindToolbarEvents() {
@@ -774,6 +779,26 @@ function observeToolbarLayout() {
     panelState.toolbarLayoutObserver.observe(root);
 }
 
+function observeToolbarHealth() {
+    panelState.toolbarHealthObserver?.disconnect?.();
+
+    const toolbarHost = panelState.panelEl?.querySelector('#ne-toolbar-host');
+    if (!toolbarHost || typeof MutationObserver !== 'function') {
+        panelState.toolbarHealthObserver = null;
+        return;
+    }
+
+    panelState.toolbarHealthObserver = new MutationObserver(() => {
+        scheduleToolbarHealthRepair();
+    });
+    panelState.toolbarHealthObserver.observe(toolbarHost, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['style', 'hidden', 'class'],
+    });
+}
+
 function scheduleToolbarLayout() {
     if (panelState.toolbarLayoutFrame) {
         cancelAnimationFrame(panelState.toolbarLayoutFrame);
@@ -783,6 +808,74 @@ function scheduleToolbarLayout() {
         panelState.toolbarLayoutFrame = 0;
         applyToolbarLayout();
     });
+}
+
+function scheduleToolbarHealthRepair() {
+    if (panelState.toolbarHealthFrame) {
+        cancelAnimationFrame(panelState.toolbarHealthFrame);
+    }
+
+    panelState.toolbarHealthFrame = requestAnimationFrame(() => {
+        panelState.toolbarHealthFrame = 0;
+        repairToolbarHealth();
+    });
+}
+
+function repairToolbarHealth() {
+    const panelEl = panelState.panelEl;
+    const toolbarHost = panelEl?.querySelector('#ne-toolbar-host');
+    if (!panelEl || !toolbarHost) {
+        return;
+    }
+
+    const toolbarRoot = panelState.toolbarRefs?.root ?? toolbarHost.querySelector('#ne-toolbar');
+    if (!(toolbarRoot instanceof HTMLElement) || !toolbarRoot.isConnected) {
+        if (panelEl.classList.contains(CLASS_OPEN)) {
+            syncToolbarSource(getSessionState(), { forceRemount: true });
+        }
+        return;
+    }
+
+    const repairedNodes = [];
+    clearUnexpectedToolbarDisplay(toolbarHost, repairedNodes);
+    clearUnexpectedToolbarDisplay(toolbarRoot, repairedNodes);
+    clearUnexpectedToolbarDisplay(toolbarRoot.querySelector('.ne-toolbar__title-wrap'), repairedNodes);
+    clearUnexpectedToolbarDisplay(toolbarRoot.querySelector('.ne-toolbar__actions'), repairedNodes);
+
+    toolbarRoot.querySelectorAll('*').forEach((element) => {
+        clearUnexpectedToolbarDisplay(element, repairedNodes);
+    });
+
+    if (repairedNodes.length > 0) {
+        scheduleToolbarLayout();
+        console.warn('[NoteEditor] Repaired unexpected toolbar visibility mutation.', repairedNodes);
+    }
+}
+
+function clearUnexpectedToolbarDisplay(element, repairedNodes) {
+    if (!(element instanceof HTMLElement) || element.hidden) {
+        return;
+    }
+
+    if (String(element.style.display ?? '').trim().toLowerCase() !== 'none') {
+        return;
+    }
+
+    element.style.removeProperty('display');
+    repairedNodes.push(describeToolbarNode(element));
+}
+
+function describeToolbarNode(element) {
+    if (!(element instanceof HTMLElement)) {
+        return '';
+    }
+
+    if (element.id) {
+        return `#${element.id}`;
+    }
+
+    const className = String(element.className ?? '').trim().replace(/\s+/g, '.');
+    return className ? `.${className}` : element.tagName.toLowerCase();
 }
 
 function applyToolbarLayout() {
