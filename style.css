@@ -1735,6 +1735,7 @@
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
+    touch-action: pan-x;
     max-height: 0;
     padding: 0 0.75rem;
     opacity: 0;
@@ -2536,11 +2537,17 @@
     }
 
     .ne-editor-shell--canvas-focused .ne-format-bar {
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(100%);
+    }
+
+    .ne-panel--mobile-editing .ne-format-bar {
         max-height: none;
         padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
         border-bottom-width: 0;
-
         opacity: 1;
+        pointer-events: auto;
         transform: translateY(0);
     }
 

@@ -81,6 +81,13 @@ import { escapeHtml, isMobileViewport } from './util.js';
 
 const CONTENT_SYNC_DELAY_MS = 180;
 const CONTENT_HISTORY_LIMIT = 100;
+const MOBILE_KEYBOARD_OPEN_THRESHOLD_PX = 120;
+const MOBILE_KEYBOARD_CLOSE_THRESHOLD_PX = 56;
+const FORMAT_BAR_SCROLL_DRAG_THRESHOLD_PX = 10;
+const FORMAT_BAR_SCROLL_OFFSET_THRESHOLD_PX = 6;
+const FORMAT_BAR_INTERACTION_CLEAR_DELAY_MS = 420;
+const FORMAT_BAR_SCROLL_CLEAR_DELAY_MS = 40;
+const FORMAT_BAR_SUPPRESSED_CLICK_WINDOW_MS = 350;
 
 
 const editorState = {
@@ -140,9 +147,12 @@ const editorState = {
     pendingHybridActivation: null,
     formatBarInteractionActive: false,
     pendingFormatBarInteractionClearTimer: 0,
-    lastHandledFormatCommandId: null,
-    lastHandledFormatTimestamp: 0,
+    formatBarGesture: null,
+    suppressedFormatBarClickUntil: 0,
     pendingHybridBlurExitTimer: 0,
+    mobileKeyboardMaxViewportHeight: 0,
+    mobileKeyboardOpenedDuringFocus: false,
+    mobileKeyboardDismissInProgress: false,
 };
 
 const boundToolbarButtons = new WeakSet();
@@ -319,6 +329,7 @@ function bindGlobalEvents() {
     document.addEventListener('selectionchange', handleDocumentSelectionChange);
     document.addEventListener('ne:panel-layout-state-change', handlePanelLayoutStateChange);
     document.addEventListener('ne:panel-visibility-change', handlePanelVisibilityChange);
+    window.visualViewport?.addEventListener('resize', handleMobileViewportChange);
     window.addEventListener('ne:flush-editor-state', handleExternalEditorFlushRequest);
 }
 
@@ -388,15 +399,6 @@ function bindEditorEvents() {
         if (actionButton && handleEditorAction(actionButton.dataset.action, actionButton)) {
             return;
         }
-
-        const formatButton = getClosestEventTarget(event, '[data-format]');
-        if (formatButton) {
-            if (wasFormatBarCommandHandledRecently(formatButton.dataset.format)) {
-                clearRecentFormatBarCommand();
-                return;
-            }
-            applyFormat(formatButton.dataset.format);
-        }
     });
 
     editorState.rootEl.addEventListener('input', handleEditorInput);
@@ -415,13 +417,16 @@ function bindEditorEvents() {
     editorState.previewEl?.addEventListener('keydown', handlePreviewKeyDown);
     editorState.formatBarEl?.addEventListener('click', handleFormatBarClick, true);
     editorState.formatBarEl?.addEventListener('pointerdown', handleFormatBarPointerDown, true);
+    editorState.formatBarEl?.addEventListener('pointermove', handleFormatBarPointerMove, true);
+    editorState.formatBarEl?.addEventListener('pointerup', handleFormatBarPointerUp, true);
+    editorState.formatBarEl?.addEventListener('pointercancel', handleFormatBarPointerCancel, true);
     editorState.formatBarEl?.addEventListener('mousedown', handleFormatBarMouseDown, true);
-    editorState.formatBarEl?.addEventListener('touchstart', handleFormatBarTouchStart, { passive: false, capture: true });
-    editorState.formatBarEl?.addEventListener('pointerup', scheduleFormatBarInteractionClear);
-    editorState.formatBarEl?.addEventListener('mouseup', scheduleFormatBarInteractionClear);
-    editorState.formatBarEl?.addEventListener('touchend', scheduleFormatBarInteractionClear);
-    editorState.formatBarEl?.addEventListener('pointercancel', clearFormatBarInteractionState);
-    editorState.formatBarEl?.addEventListener('touchcancel', clearFormatBarInteractionState);
+    editorState.formatBarEl?.addEventListener('mousemove', handleFormatBarMouseMove, true);
+    editorState.formatBarEl?.addEventListener('mouseup', handleFormatBarMouseUp, true);
+    editorState.formatBarEl?.addEventListener('touchstart', handleFormatBarTouchStart, { passive: true, capture: true });
+    editorState.formatBarEl?.addEventListener('touchmove', handleFormatBarTouchMove, { passive: true, capture: true });
+    editorState.formatBarEl?.addEventListener('touchend', handleFormatBarTouchEnd, true);
+    editorState.formatBarEl?.addEventListener('touchcancel', handleFormatBarTouchCancel, true);
 
     editorState.documentMetaEl?.addEventListener('keydown', (event) => {
         handleLoreMetadataInputKeyDown(event);
@@ -536,11 +541,36 @@ function exitHybridEditMode() {
 }
 
 function handleFormatBarPointerDown(event) {
-    handleFormatBarCommandTrigger(event);
+    startFormatBarGesture(event);
 }
 
 function handleFormatBarClick(event) {
-    handleFormatBarCommandTrigger(event);
+    const formatButton = getClosestEventTarget(event, '[data-format]');
+    if (!formatButton) {
+        return;
+    }
+
+    const formatId = String(formatButton.dataset.format ?? '').trim();
+    if (!formatId) {
+        clearFormatBarGestureState();
+        clearSuppressedFormatBarClick();
+        return;
+    }
+
+    if (shouldSuppressFormatBarClick()) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearFormatBarGestureState();
+        clearSuppressedFormatBarClick();
+        clearFormatBarInteractionState();
+        return;
+    }
+
+    beginFormatBarInteraction();
+    applyFormat(formatId);
+    clearFormatBarGestureState();
+    clearSuppressedFormatBarClick();
+    scheduleFormatBarInteractionClear();
 }
 
 function handleFormatBarMouseDown(event) {
@@ -548,7 +578,7 @@ function handleFormatBarMouseDown(event) {
         return;
     }
 
-    handleFormatBarCommandTrigger(event);
+    startFormatBarGesture(event);
 }
 
 function handleFormatBarTouchStart(event) {
@@ -556,7 +586,63 @@ function handleFormatBarTouchStart(event) {
         return;
     }
 
-    handleFormatBarCommandTrigger(event);
+    startFormatBarGesture(event);
+}
+
+function handleFormatBarPointerMove(event) {
+    updateFormatBarGesture(event);
+}
+
+function handleFormatBarPointerUp(event) {
+    finishFormatBarGesture(event);
+}
+
+function handleFormatBarPointerCancel() {
+    clearFormatBarGestureState();
+    clearSuppressedFormatBarClick();
+    clearFormatBarInteractionState();
+}
+
+function handleFormatBarMouseMove(event) {
+    if (window.PointerEvent) {
+        return;
+    }
+
+    updateFormatBarGesture(event);
+}
+
+function handleFormatBarMouseUp(event) {
+    if (window.PointerEvent) {
+        return;
+    }
+
+    finishFormatBarGesture(event);
+}
+
+function handleFormatBarTouchMove(event) {
+    if (window.PointerEvent) {
+        return;
+    }
+
+    updateFormatBarGesture(event);
+}
+
+function handleFormatBarTouchEnd(event) {
+    if (window.PointerEvent) {
+        return;
+    }
+
+    finishFormatBarGesture(event);
+}
+
+function handleFormatBarTouchCancel() {
+    if (window.PointerEvent) {
+        return;
+    }
+
+    clearFormatBarGestureState();
+    clearSuppressedFormatBarClick();
+    clearFormatBarInteractionState();
 }
 
 function beginFormatBarInteraction() {
@@ -569,16 +655,18 @@ function beginFormatBarInteraction() {
 function clearFormatBarInteractionState() {
     cancelPendingFormatBarInteractionClear();
     editorState.formatBarInteractionActive = false;
+    clearFormatBarGestureState();
     syncMobileEditingInteractionState();
 }
 
-function scheduleFormatBarInteractionClear() {
+function scheduleFormatBarInteractionClear(delay = FORMAT_BAR_INTERACTION_CLEAR_DELAY_MS) {
     cancelPendingFormatBarInteractionClear();
     editorState.pendingFormatBarInteractionClearTimer = window.setTimeout(() => {
         editorState.pendingFormatBarInteractionClearTimer = 0;
         editorState.formatBarInteractionActive = false;
+        clearFormatBarGestureState();
         syncMobileEditingInteractionState();
-    }, 420);
+    }, Math.max(0, Number(delay) || 0));
 }
 
 function cancelPendingFormatBarInteractionClear() {
@@ -590,55 +678,89 @@ function cancelPendingFormatBarInteractionClear() {
     editorState.pendingFormatBarInteractionClearTimer = 0;
 }
 
-function markFormatBarCommandHandled(formatId) {
-    editorState.lastHandledFormatCommandId = String(formatId ?? '').trim() || null;
-    editorState.lastHandledFormatTimestamp = Date.now();
-}
-
-function wasFormatBarCommandHandledRecently(formatId) {
-    if (!editorState.lastHandledFormatCommandId || !formatId) {
-        return false;
-    }
-
-    return editorState.lastHandledFormatCommandId === formatId
-        && (Date.now() - editorState.lastHandledFormatTimestamp) < 450;
-}
-
-function clearRecentFormatBarCommand() {
-    editorState.lastHandledFormatCommandId = null;
-    editorState.lastHandledFormatTimestamp = 0;
-}
-
-function handleFormatBarCommandTrigger(event) {
+function startFormatBarGesture(event) {
     const formatButton = getClosestEventTarget(event, '[data-format]');
     if (!formatButton) {
         return;
     }
 
+    const point = getEventClientPoint(event);
+    if (!point) {
+        return;
+    }
+
     beginFormatBarInteraction();
-    event.preventDefault();
-    event.stopPropagation();
+    editorState.formatBarGesture = {
+        toolId: String(formatButton.dataset.format ?? '').trim(),
+        startX: point.x,
+        startY: point.y,
+        startScrollLeft: editorState.formatBarEl?.scrollLeft ?? 0,
+        scrolled: false,
+    };
+}
 
-    const formatId = String(formatButton.dataset.format ?? '').trim();
-    if (!formatId) {
+function updateFormatBarGesture(event) {
+    const gesture = editorState.formatBarGesture;
+    if (!gesture) {
+        return;
+    }
+
+    const point = getEventClientPoint(event);
+    if (!point) {
+        return;
+    }
+
+    const distanceX = Math.abs(point.x - gesture.startX);
+    const distanceY = Math.abs(point.y - gesture.startY);
+    const scrollOffset = Math.abs((editorState.formatBarEl?.scrollLeft ?? 0) - gesture.startScrollLeft);
+
+    if (
+        distanceX >= FORMAT_BAR_SCROLL_DRAG_THRESHOLD_PX
+        || distanceY >= FORMAT_BAR_SCROLL_DRAG_THRESHOLD_PX
+        || scrollOffset >= FORMAT_BAR_SCROLL_OFFSET_THRESHOLD_PX
+    ) {
+        gesture.scrolled = true;
+    }
+}
+
+function finishFormatBarGesture(event) {
+    const gesture = editorState.formatBarGesture;
+    if (!gesture) {
         scheduleFormatBarInteractionClear();
         return;
     }
 
-    if (wasFormatBarCommandHandledRecently(formatId)) {
-        if (event.type === 'click') {
-            clearRecentFormatBarCommand();
-        }
-        scheduleFormatBarInteractionClear();
+    updateFormatBarGesture(event);
+    clearFormatBarGestureState();
+
+    if (gesture.scrolled) {
+        suppressFormatBarClick();
+        scheduleFormatBarInteractionClear(FORMAT_BAR_SCROLL_CLEAR_DELAY_MS);
         return;
     }
 
-    markFormatBarCommandHandled(formatId);
-    applyFormat(formatId);
-    if (event.type === 'click') {
-        clearRecentFormatBarCommand();
-    }
     scheduleFormatBarInteractionClear();
+}
+
+function clearFormatBarGestureState() {
+    editorState.formatBarGesture = null;
+}
+
+function suppressFormatBarClick() {
+    editorState.suppressedFormatBarClickUntil = Date.now() + FORMAT_BAR_SUPPRESSED_CLICK_WINDOW_MS;
+}
+
+function shouldSuppressFormatBarClick() {
+    if (Date.now() > editorState.suppressedFormatBarClickUntil) {
+        clearSuppressedFormatBarClick();
+        return false;
+    }
+
+    return editorState.suppressedFormatBarClickUntil > 0;
+}
+
+function clearSuppressedFormatBarClick() {
+    editorState.suppressedFormatBarClickUntil = 0;
 }
 
 function bindToolbarRefEvents() {
@@ -1886,6 +2008,7 @@ function handleContentKeyDown(event) {
 
 function handleContentFocus() {
     cancelPendingHybridBlurExit();
+    beginMobileKeyboardTracking();
     setCanvasFocusState(true);
     if (isHybridMode()) {
         editorState.hybridEditing = true;
@@ -1895,7 +2018,12 @@ function handleContentFocus() {
 }
 
 function handleContentBlur(event) {
-    if (shouldKeepHybridEditorOpenOnBlur(event)) {
+    const keyboardDismissed = editorState.mobileKeyboardDismissInProgress;
+    const mobileViewport = isMobileViewport();
+    resetMobileKeyboardTracking();
+    editorState.mobileKeyboardDismissInProgress = false;
+
+    if (!keyboardDismissed && shouldKeepHybridEditorOpenOnBlur(event)) {
         requestAnimationFrame(() => {
             if (!editorState.contentInputEl || editorState.contentInputEl.hidden) {
                 clearFormatBarInteractionState();
@@ -1909,7 +2037,14 @@ function handleContentBlur(event) {
     }
 
     captureCurrentEditorViewportState();
-    if (isHybridMode() && editorState.hybridEditing) {
+    if (!keyboardDismissed && isHybridMode() && editorState.hybridEditing) {
+        setCanvasFocusState(false);
+        clearFormatBarInteractionState();
+        if (mobileViewport) {
+            flushEditorState();
+            exitHybridEditMode();
+            return;
+        }
         schedulePendingHybridBlurExit();
         return;
     }
@@ -1989,6 +2124,25 @@ function getClosestEventTarget(event, selector) {
     return target?.closest(selector) ?? null;
 }
 
+function getEventClientPoint(event) {
+    const touchPoint = event?.touches?.[0] ?? event?.changedTouches?.[0] ?? null;
+    if (touchPoint && Number.isFinite(touchPoint.clientX) && Number.isFinite(touchPoint.clientY)) {
+        return {
+            x: touchPoint.clientX,
+            y: touchPoint.clientY,
+        };
+    }
+
+    if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
+        return {
+            x: event.clientX,
+            y: event.clientY,
+        };
+    }
+
+    return null;
+}
+
 function schedulePendingHybridBlurExit() {
     cancelPendingHybridBlurExit();
     editorState.pendingHybridBlurExitTimer = window.setTimeout(() => {
@@ -2009,6 +2163,72 @@ function cancelPendingHybridBlurExit() {
     editorState.pendingHybridBlurExitTimer = 0;
 }
 
+function beginMobileKeyboardTracking() {
+    if (!isMobileViewport() || !window.visualViewport) {
+        resetMobileKeyboardTracking();
+        return;
+    }
+
+    const viewportHeight = Number(window.visualViewport.height || 0);
+    const windowHeight = Number(window.innerHeight || 0);
+    editorState.mobileKeyboardMaxViewportHeight = Math.max(
+        0,
+        Number.isFinite(viewportHeight) ? viewportHeight : 0,
+        Number.isFinite(windowHeight) ? windowHeight : 0,
+    );
+    editorState.mobileKeyboardOpenedDuringFocus = false;
+    editorState.mobileKeyboardDismissInProgress = false;
+}
+
+function resetMobileKeyboardTracking() {
+    editorState.mobileKeyboardMaxViewportHeight = 0;
+    editorState.mobileKeyboardOpenedDuringFocus = false;
+    editorState.mobileKeyboardDismissInProgress = false;
+}
+
+function handleMobileViewportChange() {
+    if (!isMobileViewport() || !window.visualViewport) {
+        resetMobileKeyboardTracking();
+        return;
+    }
+
+    const input = editorState.contentInputEl;
+    if (!input || input.hidden || document.activeElement !== input) {
+        resetMobileKeyboardTracking();
+        return;
+    }
+
+    const currentViewportHeight = Number(window.visualViewport.height || 0);
+    if (!Number.isFinite(currentViewportHeight) || currentViewportHeight <= 0) {
+        return;
+    }
+
+    const baselineHeight = Math.max(
+        editorState.mobileKeyboardMaxViewportHeight || 0,
+        Number(window.innerHeight || 0),
+        currentViewportHeight,
+    );
+    editorState.mobileKeyboardMaxViewportHeight = baselineHeight;
+
+    const keyboardDelta = baselineHeight - currentViewportHeight;
+    if (!editorState.mobileKeyboardOpenedDuringFocus) {
+        if (keyboardDelta >= MOBILE_KEYBOARD_OPEN_THRESHOLD_PX) {
+            editorState.mobileKeyboardOpenedDuringFocus = true;
+        }
+        return;
+    }
+
+    const keyboardLikelyClosed = keyboardDelta <= MOBILE_KEYBOARD_CLOSE_THRESHOLD_PX
+        && Math.abs(Number(window.visualViewport.offsetTop || 0)) <= 1;
+    if (!keyboardLikelyClosed) {
+        return;
+    }
+
+    editorState.mobileKeyboardDismissInProgress = true;
+    clearFormatBarInteractionState();
+    input.blur();
+}
+
 function syncMobileEditingInteractionState() {
     const panelEl = document.getElementById('ne-panel');
     if (!panelEl) {
@@ -2021,7 +2241,6 @@ function syncMobileEditingInteractionState() {
         && !editorState.contentInputEl.hidden
         && (
             document.activeElement === editorState.contentInputEl
-            || editorState.hybridEditing
             || editorState.formatBarInteractionActive
         )
     );
