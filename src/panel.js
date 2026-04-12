@@ -3,6 +3,7 @@
 // panel state wiring. Bounds math and pointer interactions live in helpers.
 
 import { getSidebarLabel, normaliseDocumentSource } from './document-source.js';
+import { EDITOR_MODE_PREVIEW } from './editor-tool-config.js';
 import {
     closeToolbarTermsMenu,
     flushEditorState,
@@ -28,15 +29,24 @@ import {
 } from './panel-pointer.js';
 import { t } from './i18n/index.js';
 import { setLorebookSyncActive } from './state/lorebook-store.js';
-import { getSettingsState, subscribePanelFontScale, subscribeSettings } from './state/settings-store.js';
+import { getSettingsState, subscribePanelFontScale, subscribeSettings, syncSettingsViewport } from './state/settings-store.js';
 import { getSessionState, setActiveSource, subscribeSession } from './state/session-store.js';
+import { renderSidebarController } from './sidebar-controller.js';
 import { mountToolbar, renderToolbarOverflowMenu } from './ui/toolbar-view.js';
-import { isMobileViewport, setElementStyleProperty, setPanelBounds } from './util.js';
+import {
+    getPanelRect,
+    getViewportMetrics,
+    isMobileViewport,
+    MOBILE_MARGIN,
+    setElementStyleProperty,
+    setPanelBounds,
+} from './util.js';
 
 const CLASS_OPEN = 'ne-panel--open';
 const CLASS_FULLSCREEN = 'ne-panel--fullscreen';
 const CLASS_PREVIEW = 'ne-panel--preview';
 const CLASS_MENU = 'ne-panel--menu-open';
+const CLASS_SMALL_WINDOW = 'ne-panel--small-window';
 const STORAGE_WINDOW_BOUNDS = 'note-editor.windowed-bounds.v1';
 const TOOLBAR_TITLE_MIN_WIDTH = 140;
 const TOOLBAR_COMPACT_TITLE_MIN_WIDTH = 168;
@@ -68,7 +78,9 @@ const panelState = {
     toolbarHealthObserver: null,
     toolbarHealthFrame: 0,
     lastSettingsState: null,
+    lastViewportMobile: isMobileViewport(),
     mobileSidebarGesture: null,
+    mobileEditingRestoreBounds: null,
 };
 
 let viewportEventsBound = false;
@@ -120,6 +132,11 @@ export function openPanel({ source = null } = {}) {
     panelState.toolbar.menu = false;
     panelEl.classList.add(CLASS_OPEN);
     keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
+    syncPanelLayoutState();
+    panelEl.dispatchEvent(new CustomEvent('ne:panel-visibility-change', {
+        bubbles: true,
+        detail: { open: true },
+    }));
     const requestedSource = source ? normaliseDocumentSource(source) : '';
     if (requestedSource) {
         hasAppliedDefaultSource = true;
@@ -152,6 +169,11 @@ export function closePanel() {
     panelState.toolbar.menu = false;
     setToolbarOverflowOpen(false);
     panelEl.classList.remove(CLASS_OPEN);
+    syncPanelLayoutState();
+    panelEl.dispatchEvent(new CustomEvent('ne:panel-visibility-change', {
+        bubbles: true,
+        detail: { open: false },
+    }));
     updateToolbarState();
 }
 
@@ -189,6 +211,7 @@ function bindPanelEvents() {
     panelState.panelEl?.addEventListener('ne:set-menu-open', (event) => {
         setMenuOpen(Boolean(event.detail?.open));
     });
+    panelState.panelEl?.addEventListener('ne:mobile-editing-state-change', handleMobileEditingStateChange);
     panelState.panelEl?.addEventListener('ne:toolbar-layout-update', scheduleToolbarLayout);
     panelState.panelEl?.addEventListener('pointerdown', handlePanelPointerDown);
     panelState.panelEl?.addEventListener('pointermove', handlePanelPointerMove);
@@ -211,6 +234,7 @@ function bindViewportEvents() {
     viewportEventsBound = true;
     window.addEventListener('resize', handleViewportResize);
     window.visualViewport?.addEventListener('resize', handleViewportResize);
+    window.visualViewport?.addEventListener('scroll', handleViewportResize);
 }
 
 function bindSessionEvents() {
@@ -238,6 +262,15 @@ function bindSettingsEvents() {
 
         if (previousSettings.language !== nextSettings.language) {
             syncToolbarSource(getSessionState(), { forceRemount: true });
+            updateToolbarState();
+            refreshEditorView();
+            return;
+        }
+
+        if (previousSettings.editorMode !== nextSettings.editorMode) {
+            if (nextSettings.editorMode !== EDITOR_MODE_PREVIEW) {
+                panelState.toolbar.preview = false;
+            }
             updateToolbarState();
             refreshEditorView();
         }
@@ -310,6 +343,7 @@ function applyPanelFontScale(value) {
 
 function handleResizeEnd() {
     keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
+    syncPanelLayoutState();
     scheduleToolbarLayout();
 }
 
@@ -328,17 +362,24 @@ function updateToolbarState() {
         return;
     }
 
-    panelState.panelEl.classList.toggle(CLASS_PREVIEW, panelState.toolbar.preview);
+    const previewWorkflowActive = getSettingsState().editorMode === EDITOR_MODE_PREVIEW;
+    if (!previewWorkflowActive && panelState.toolbar.preview) {
+        panelState.toolbar.preview = false;
+    }
+
+    panelState.panelEl.classList.toggle(CLASS_PREVIEW, previewWorkflowActive && panelState.toolbar.preview);
     panelState.panelEl.classList.toggle(CLASS_MENU, panelState.toolbar.menu);
 
     const fullscreen = panelState.panelEl.classList.contains(CLASS_FULLSCREEN);
     const sidebarLabel = getSidebarLabel(panelState.toolbarSource || getSessionState().activeSource);
-    updateToggleButton(
-        panelState.toolbarRefs?.previewButton,
-        panelState.toolbar.preview,
-        t('panel.preview.exit'),
-        t('panel.preview.toggle'),
-    );
+    if (previewWorkflowActive) {
+        updateToggleButton(
+            panelState.toolbarRefs?.previewButton,
+            panelState.toolbar.preview,
+            t('panel.preview.exit'),
+            t('panel.preview.toggle'),
+        );
+    }
     updateToggleButton(
         panelState.toolbarRefs?.menuButton,
         panelState.toolbar.menu,
@@ -355,6 +396,10 @@ function updateToolbarState() {
 }
 
 function togglePreviewState() {
+    if (getSettingsState().editorMode !== EDITOR_MODE_PREVIEW) {
+        return;
+    }
+
     flushEditorState();
     panelState.toolbar.preview = !panelState.toolbar.preview;
     updateToolbarState();
@@ -383,6 +428,7 @@ function enterFullscreen() {
     rememberCurrentWindowBounds();
     panelState.panelEl.classList.add(CLASS_FULLSCREEN);
     applyFullscreenBounds(panelState);
+    syncPanelLayoutState();
     updateToolbarState();
 }
 
@@ -397,6 +443,7 @@ function exitFullscreen() {
     }
 
     keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
+    syncPanelLayoutState();
     updateToolbarState();
 }
 
@@ -430,24 +477,174 @@ function syncLorebookRuntimeState(source, { open = panelState.panelEl?.classList
 }
 
 function handleViewportResize() {
+    const viewportWasMobile = panelState.lastViewportMobile;
+    const viewportIsMobile = isMobileViewport();
+    panelState.lastViewportMobile = viewportIsMobile;
+
     if (!panelState.panelEl?.classList.contains(CLASS_OPEN)) {
+        if (viewportWasMobile !== viewportIsMobile) {
+            syncSettingsViewport();
+        }
         return;
+    }
+
+    const toolbarViewportChanged = syncSettingsViewport();
+    if (toolbarViewportChanged) {
+        renderSidebarController();
     }
 
     if (!panelState.hasPositionedPanel) {
         applyDefaultWindowBounds(panelState, STORAGE_WINDOW_BOUNDS, true);
+        syncPanelLayoutState();
         return;
     }
 
     if (panelState.panelEl.classList.contains(CLASS_FULLSCREEN)) {
+        releaseMobileEditingViewportLock({ restoreBounds: false });
         applyFullscreenBounds(panelState);
+        syncPanelLayoutState();
         scheduleToolbarLayout();
         return;
     }
 
+    if (isMobileEditingViewportLocked()) {
+        syncMobileEditingViewportLock();
+        syncPanelLayoutState();
+        scheduleToolbarLayout();
+        return;
+    }
+
+    releaseMobileEditingViewportLock();
     keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
+    syncPanelLayoutState();
     scheduleToolbarLayout();
 }
+
+function isMobileEditingViewportLocked() {
+    return Boolean(
+        panelState.panelEl?.classList.contains('ne-panel--mobile-editing')
+        && isMobileViewport()
+        && window.visualViewport
+    );
+}
+
+function handleMobileEditingStateChange(event) {
+    if (Boolean(event.detail?.active)) {
+        syncMobileEditingViewportLock();
+        scheduleToolbarLayout();
+        return;
+    }
+
+    releaseMobileEditingViewportLock();
+    scheduleToolbarLayout();
+}
+
+function syncMobileEditingViewportLock() {
+    if (
+        !panelState.panelEl
+        || !panelState.panelEl.classList.contains(CLASS_OPEN)
+        || panelState.panelEl.classList.contains(CLASS_FULLSCREEN)
+        || !isMobileEditingViewportLocked()
+    ) {
+        releaseMobileEditingViewportLock({ restoreBounds: false });
+        return;
+    }
+
+    const rect = getPanelRect(panelState.panelEl);
+    if (!rect) {
+        return;
+    }
+
+    if (!panelState.mobileEditingRestoreBounds) {
+        panelState.mobileEditingRestoreBounds = {
+            width: rect.width,
+            height: rect.height,
+            left: rect.left,
+            top: rect.top,
+        };
+    }
+
+    const sourceBounds = panelState.mobileEditingRestoreBounds;
+    const viewport = getViewportMetrics();
+    const margin = MOBILE_MARGIN;
+    const availableWidth = Math.max(0, viewport.width - (margin * 2));
+    const availableHeight = Math.max(0, viewport.height - (margin * 2));
+    if (availableWidth <= 0 || availableHeight <= 0) {
+        return;
+    }
+
+    const width = Math.min(sourceBounds.width, availableWidth);
+    const height = Math.min(sourceBounds.height, availableHeight);
+    const minLeft = viewport.offsetLeft + margin;
+    const maxLeft = viewport.offsetLeft + viewport.width - width - margin;
+    const minTop = viewport.offsetTop + margin;
+    const maxTop = viewport.offsetTop + viewport.height - height - margin;
+    const nextBounds = {
+        width,
+        height,
+        left: clampNumber(sourceBounds.left, minLeft, Math.max(minLeft, maxLeft)),
+        top: clampNumber(sourceBounds.top, minTop, Math.max(minTop, maxTop)),
+    };
+
+    setPanelBounds(panelState.panelEl, nextBounds);
+}
+
+function releaseMobileEditingViewportLock({ restoreBounds = true } = {}) {
+    const restoreBoundsSnapshot = panelState.mobileEditingRestoreBounds;
+    panelState.mobileEditingRestoreBounds = null;
+
+    if (
+        !restoreBounds
+        || !restoreBoundsSnapshot
+        || !panelState.panelEl
+        || !panelState.panelEl.classList.contains(CLASS_OPEN)
+        || panelState.panelEl.classList.contains(CLASS_FULLSCREEN)
+    ) {
+        return;
+    }
+
+    setPanelBounds(panelState.panelEl, getClampedBounds(panelState, restoreBoundsSnapshot));
+    keepPanelReachable(panelState, STORAGE_WINDOW_BOUNDS);
+    syncPanelLayoutState();
+}
+
+function syncPanelLayoutState() {
+    if (!panelState.panelEl) {
+        return;
+    }
+
+    const rect = panelState.panelEl.classList.contains(CLASS_OPEN)
+        ? getPanelRect(panelState.panelEl)
+        : null;
+    if (rect) {
+        setElementStyleProperty(panelState.panelEl, '--ne-panel-current-height', `${Math.round(rect.height)}px`, '');
+    } else {
+        panelState.panelEl.style.removeProperty('--ne-panel-current-height');
+    }
+    const fullscreen = panelState.panelEl.classList.contains(CLASS_FULLSCREEN);
+    const smallWindow = Boolean(
+        rect
+        && !fullscreen
+        && (
+            isMobileViewport()
+            || rect.height <= 620
+            || rect.width <= 560
+        )
+    );
+
+    panelState.panelEl.classList.toggle(CLASS_SMALL_WINDOW, smallWindow);
+    panelState.panelEl.dispatchEvent(new CustomEvent('ne:panel-layout-state-change', {
+        bubbles: true,
+        detail: {
+            open: panelState.panelEl.classList.contains(CLASS_OPEN),
+            fullscreen,
+            smallWindow,
+            width: rect?.width ?? 0,
+            height: rect?.height ?? 0,
+        },
+    }));
+}
+
 
 function handlePanelPointerDown(event) {
     const target = event.target;
@@ -922,7 +1119,7 @@ function getAvailableToolbarOptionalActions(refs) {
     if (refs?.tagsButton && !refs.tagsButton.hidden) {
         available.push('tags');
     }
-    if (refs?.previewButton) {
+    if (refs?.previewButton && getSettingsState().editorMode === EDITOR_MODE_PREVIEW) {
         available.push('preview');
     }
     if (refs?.sourceToggleButton) {
@@ -939,7 +1136,7 @@ function applyToolbarLayoutState(refs, { compact = false, hiddenActions = [], av
         refs.tagsWrap.hidden = !availableActions.includes('tags') || hiddenSet.has('tags');
     }
     if (refs.previewButton) {
-        refs.previewButton.hidden = hiddenSet.has('preview');
+        refs.previewButton.hidden = !availableActions.includes('preview') || hiddenSet.has('preview');
     }
     if (refs.sourceToggleButton) {
         refs.sourceToggleButton.hidden = hiddenSet.has('source');

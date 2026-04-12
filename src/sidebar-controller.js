@@ -43,9 +43,13 @@ import {
 import { isMobileViewport } from './util.js';
 import {
     getSettingsState,
+    moveSettingsFormatBarTool,
     previewSettingsPanelFontScale,
+    setSettingsEditorHotkeysEnabled,
     setSettingsPanelFontScale,
     subscribeSettings,
+    setSettingsEditorMode,
+    setSettingsFormatBarToolVisible,
     setSettingsDesktopShortcutCreateCurrent,
     setSettingsDesktopShortcutOpenLorebook,
     setSettingsDesktopShortcutOpenNotes,
@@ -388,6 +392,9 @@ function handleSidebarClick(event) {
         if (actionButton && handleSettingsShortcutAction(actionButton, event.target)) {
             return;
         }
+        if (actionButton && handleSettingsFormatBarAction(actionButton)) {
+            return;
+        }
         if (actionButton && handleSidebarAction(actionButton.dataset.action, actionButton, {
             createNote: createNoteFromSidebar,
             getUiState: () => uiState,
@@ -600,6 +607,18 @@ function handleSettingsFieldChange(field, target) {
     }
     if (field === 'showLorebookEntryCounters') {
         setSettingsShowLorebookEntryCounters(target.checked);
+        return;
+    }
+    if (field === 'editorMode') {
+        setSettingsEditorMode(target.value);
+        return;
+    }
+    if (field === 'editorHotkeysEnabled') {
+        setSettingsEditorHotkeysEnabled(target.checked);
+        return;
+    }
+    if (field.startsWith('formatBarToolVisible:')) {
+        setSettingsFormatBarToolVisible(field.slice('formatBarToolVisible:'.length), target.checked);
         return;
     }
     if (field === 'integrationWandMenuEnabled') {
@@ -899,6 +918,26 @@ function handleSettingsShortcutAction(actionButton, target) {
         if (uiState.activeShortcutCaptureField === captureField) {
             finishShortcutCapture({ rerender: true });
         }
+        return true;
+    }
+
+    return false;
+}
+
+function handleSettingsFormatBarAction(actionButton) {
+    const action = String(actionButton?.dataset?.action ?? '').trim();
+    const toolId = String(actionButton?.dataset?.formatBarToolId ?? '').trim();
+    if (!toolId) {
+        return false;
+    }
+
+    if (action === 'move-format-bar-tool-up') {
+        moveSettingsFormatBarTool(toolId, 'up');
+        return true;
+    }
+
+    if (action === 'move-format-bar-tool-down') {
+        moveSettingsFormatBarTool(toolId, 'down');
         return true;
     }
 

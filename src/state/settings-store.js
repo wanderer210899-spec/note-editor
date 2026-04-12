@@ -2,11 +2,21 @@
 // Responsible for: plugin-level settings and launcher integration preferences.
 
 import { normalizeLocale, setLocale } from '../i18n/index.js';
+import {
+    createDefaultFormatBarTools,
+    EDITOR_MODE_HYBRID,
+    EDITOR_MODE_PREVIEW,
+    moveFormatBarTool,
+    normalizeFormatBarTools,
+    setFormatBarToolVisibility,
+} from '../editor-tool-config.js';
 import { flushExtensionSettings, readExtensionSetting, writeExtensionSetting } from '../services/st-context.js';
-import { cloneData, readJsonStorage, writeJsonStorage } from '../util.js';
+import { cloneData, isMobileViewport, readJsonStorage, writeJsonStorage } from '../util.js';
 
 const STORAGE_KEY = 'note-editor.settings.v1';
 const DESKTOP_SHORTCUTS_EXTENSION_KEY = 'noteEditorDesktopShortcuts';
+const FORMAT_BAR_VIEWPORT_DESKTOP = 'desktop';
+const FORMAT_BAR_VIEWPORT_MOBILE = 'mobile';
 const PANEL_FONT_SCALE_DEFAULT = 1;
 const PANEL_FONT_SCALE_MIN = 0.8;
 const PANEL_FONT_SCALE_MAX = 1.4;
@@ -18,12 +28,23 @@ function createDefaultSettings() {
     return {
         language: detectDefaultLanguage(),
         defaultSource: 'note',
+        editorMode: EDITOR_MODE_HYBRID,
+        editorHotkeysEnabled: true,
         newEntryExcludeRecursion: false,
         newEntryPreventRecursion: false,
         showLorebookEntryCounters: true,
         panelFontScale: PANEL_FONT_SCALE_DEFAULT,
+        formatBarToolsByViewport: createDefaultFormatBarToolsByViewport(),
         transferOverwriteExisting: false,
         integrations: createDefaultIntegrations(),
+    };
+}
+
+function createDefaultFormatBarToolsByViewport() {
+    const defaults = createDefaultFormatBarTools();
+    return {
+        desktop: defaults.map((tool) => ({ ...tool })),
+        mobile: defaults.map((tool) => ({ ...tool })),
     };
 }
 
@@ -68,10 +89,16 @@ function readPersistedSettings() {
     return {
         language: normalizeLocale(stored.language),
         defaultSource: stored.defaultSource === 'lorebook' ? 'lorebook' : 'note',
+        editorMode: normalizeEditorMode(stored.editorMode),
+        editorHotkeysEnabled: stored.editorHotkeysEnabled !== false,
         newEntryExcludeRecursion: Boolean(stored.newEntryExcludeRecursion),
         newEntryPreventRecursion: Boolean(stored.newEntryPreventRecursion),
         showLorebookEntryCounters: stored.showLorebookEntryCounters !== false,
         panelFontScale: normalizePanelFontScale(stored.panelFontScale),
+        formatBarToolsByViewport: normalizeFormatBarToolsByViewport(
+            stored.formatBarToolsByViewport,
+            stored.formatBarTools,
+        ),
         transferOverwriteExisting: Boolean(stored.transferOverwriteExisting),
         integrations: normalizeIntegrations({
             ...stored.integrations,
@@ -82,14 +109,23 @@ function readPersistedSettings() {
 
 let settings = readPersistedSettings();
 let panelFontScalePreview = null;
+let lastSettingsViewport = getActiveFormatBarViewport();
 
 setLocale(settings.language);
 syncExtensionDesktopShortcuts(settings.integrations?.desktopShortcuts);
 
 export function getSettingsState() {
+    const activeFormatBarViewport = getActiveFormatBarViewport();
+    lastSettingsViewport = activeFormatBarViewport;
+    const snapshot = cloneData(settings);
+
     return {
-        ...cloneData(settings),
+        ...snapshot,
         panelFontScale: getEffectivePanelFontScale(),
+        activeFormatBarViewport,
+        formatBarTools: cloneData(
+            snapshot.formatBarToolsByViewport?.[activeFormatBarViewport] ?? createDefaultFormatBarTools(),
+        ),
     };
 }
 
@@ -123,6 +159,14 @@ export function setSettingsDefaultSource(source) {
     updateSettings({ defaultSource: source === 'lorebook' ? 'lorebook' : 'note' });
 }
 
+export function setSettingsEditorMode(mode) {
+    updateSettings({ editorMode: normalizeEditorMode(mode) });
+}
+
+export function setSettingsEditorHotkeysEnabled(value) {
+    updateSettings({ editorHotkeysEnabled: Boolean(value) });
+}
+
 export function setSettingsNewEntryExcludeRecursion(value) {
     updateSettings({ newEntryExcludeRecursion: Boolean(value) });
 }
@@ -137,6 +181,28 @@ export function setSettingsShowLorebookEntryCounters(value) {
 
 export function setSettingsTransferOverwriteExisting(value) {
     updateSettings({ transferOverwriteExisting: Boolean(value) });
+}
+
+export function setSettingsFormatBarToolVisible(toolId, visible) {
+    const normalizedToolId = String(toolId ?? '').trim();
+    if (!normalizedToolId) {
+        return;
+    }
+
+    updateActiveFormatBarTools((formatBarTools) => (
+        setFormatBarToolVisibility(formatBarTools, normalizedToolId, visible)
+    ));
+}
+
+export function moveSettingsFormatBarTool(toolId, direction) {
+    const normalizedToolId = String(toolId ?? '').trim();
+    if (!normalizedToolId) {
+        return;
+    }
+
+    updateActiveFormatBarTools((formatBarTools) => (
+        moveFormatBarTool(formatBarTools, normalizedToolId, direction)
+    ));
 }
 
 export function setSettingsWandMenuEnabled(value) {
@@ -237,6 +303,17 @@ export function getSettingsPanelFontScaleDefault() {
     return PANEL_FONT_SCALE_DEFAULT;
 }
 
+export function syncSettingsViewport() {
+    const nextViewport = getActiveFormatBarViewport();
+    if (lastSettingsViewport === nextViewport) {
+        return false;
+    }
+
+    lastSettingsViewport = nextViewport;
+    emitChange();
+    return true;
+}
+
 function updateIntegrationSetting(sectionKey, changes) {
     const defaults = createDefaultIntegrations();
     const nextIntegrations = normalizeIntegrations({
@@ -247,6 +324,21 @@ function updateIntegrationSetting(sectionKey, changes) {
         },
     });
     updateSettings({ integrations: nextIntegrations });
+}
+
+function updateActiveFormatBarTools(mutator) {
+    if (typeof mutator !== 'function') {
+        return;
+    }
+
+    const activeViewport = getActiveFormatBarViewport();
+    const currentTools = settings.formatBarToolsByViewport?.[activeViewport] ?? createDefaultFormatBarTools();
+    updateSettings({
+        formatBarToolsByViewport: {
+            ...settings.formatBarToolsByViewport,
+            [activeViewport]: mutator(currentTools),
+        },
+    });
 }
 
 function updateSettings(changes) {
@@ -273,12 +365,27 @@ function normalizeSettingsSnapshot(candidate) {
     return {
         language: normalizeLocale(candidate?.language),
         defaultSource: candidate?.defaultSource === 'lorebook' ? 'lorebook' : 'note',
+        editorMode: normalizeEditorMode(candidate?.editorMode),
+        editorHotkeysEnabled: candidate?.editorHotkeysEnabled !== false,
         newEntryExcludeRecursion: Boolean(candidate?.newEntryExcludeRecursion),
         newEntryPreventRecursion: Boolean(candidate?.newEntryPreventRecursion),
         showLorebookEntryCounters: candidate?.showLorebookEntryCounters !== false,
         panelFontScale: normalizePanelFontScale(candidate?.panelFontScale),
+        formatBarToolsByViewport: normalizeFormatBarToolsByViewport(
+            candidate?.formatBarToolsByViewport,
+            candidate?.formatBarTools,
+        ),
         transferOverwriteExisting: Boolean(candidate?.transferOverwriteExisting),
         integrations: normalizeIntegrations(candidate?.integrations),
+    };
+}
+
+function normalizeFormatBarToolsByViewport(stored, legacyTools = null) {
+    const normalizedLegacyTools = normalizeFormatBarTools(legacyTools);
+
+    return {
+        desktop: normalizeFormatBarTools(stored?.desktop ?? normalizedLegacyTools),
+        mobile: normalizeFormatBarTools(stored?.mobile ?? normalizedLegacyTools),
     };
 }
 
@@ -318,6 +425,10 @@ function normalizeIntegrations(stored) {
     };
 }
 
+function getActiveFormatBarViewport() {
+    return isMobileViewport() ? FORMAT_BAR_VIEWPORT_MOBILE : FORMAT_BAR_VIEWPORT_DESKTOP;
+}
+
 function hasEnabledLauncher(integrations) {
     return Boolean(
         integrations?.wandMenu?.enabled
@@ -341,10 +452,13 @@ function hasDesktopShortcutBinding(shortcuts) {
 function isSameSettings(left, right) {
     return left.language === right.language
         && left.defaultSource === right.defaultSource
+        && left.editorMode === right.editorMode
+        && left.editorHotkeysEnabled === right.editorHotkeysEnabled
         && left.newEntryExcludeRecursion === right.newEntryExcludeRecursion
         && left.newEntryPreventRecursion === right.newEntryPreventRecursion
         && left.showLorebookEntryCounters === right.showLorebookEntryCounters
         && left.panelFontScale === right.panelFontScale
+        && JSON.stringify(left.formatBarToolsByViewport) === JSON.stringify(right.formatBarToolsByViewport)
         && left.transferOverwriteExisting === right.transferOverwriteExisting
         && JSON.stringify(left.integrations) === JSON.stringify(right.integrations);
 }
@@ -380,6 +494,12 @@ function normalizePanelFontScale(value) {
     const steppedValue = Math.round(numericValue / PANEL_FONT_SCALE_STEP) * PANEL_FONT_SCALE_STEP;
     const clampedValue = Math.min(PANEL_FONT_SCALE_MAX, Math.max(PANEL_FONT_SCALE_MIN, steppedValue));
     return Number(clampedValue.toFixed(2));
+}
+
+function normalizeEditorMode(value) {
+    return String(value ?? '').trim() === EDITOR_MODE_PREVIEW
+        ? EDITOR_MODE_PREVIEW
+        : EDITOR_MODE_HYBRID;
 }
 
 function normalizeShortcutSetting(value) {

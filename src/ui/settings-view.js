@@ -1,6 +1,13 @@
 // src/ui/settings-view.js
 // Responsible for: rendering the plugin settings panel inside the sidebar body.
 
+import {
+    EDITOR_MODE_HYBRID,
+    EDITOR_MODE_PREVIEW,
+    getFormatBarToolDefinition,
+    normalizeFormatBarTools,
+    renderFormatBarToolContent,
+} from '../editor-tool-config.js';
 import { escapeHtml } from '../util.js';
 import { t } from '../i18n/index.js';
 
@@ -8,10 +15,14 @@ export function renderSettingsPanel(settingsState, transferModel = {}, settingsU
     const {
         language = 'en',
         defaultSource = 'note',
+        editorMode = EDITOR_MODE_HYBRID,
+        editorHotkeysEnabled = true,
         newEntryExcludeRecursion = false,
         newEntryPreventRecursion = false,
         showLorebookEntryCounters = true,
         panelFontScale = 1,
+        activeFormatBarViewport = 'desktop',
+        formatBarTools = [],
         transferOverwriteExisting = false,
         integrations = {},
     } = settingsState ?? {};
@@ -79,6 +90,14 @@ export function renderSettingsPanel(settingsState, transferModel = {}, settingsU
                             <option value="lorebook"${defaultSource === 'lorebook' ? ' selected' : ''}>${escapeHtml(t('settings.source.lorebook'))}</option>
                         </select>
                     </label>
+                    <label class="ne-settings-panel__field">
+                        <span class="ne-settings-panel__field-label">${escapeHtml(t('settings.editorMode.label'))}</span>
+                        <select class="ne-input" data-settings-field="editorMode">
+                            <option value="${EDITOR_MODE_HYBRID}"${editorMode === EDITOR_MODE_HYBRID ? ' selected' : ''}>${escapeHtml(t('settings.editorMode.hybrid'))}</option>
+                            <option value="${EDITOR_MODE_PREVIEW}"${editorMode === EDITOR_MODE_PREVIEW ? ' selected' : ''}>${escapeHtml(t('settings.editorMode.preview'))}</option>
+                        </select>
+                    </label>
+                    <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.editorMode.hint'))}</p>
                     <label class="ne-settings-panel__checkbox-row">
                         <input
                             type="checkbox"
@@ -98,6 +117,15 @@ export function renderSettingsPanel(settingsState, transferModel = {}, settingsU
                     <label class="ne-settings-panel__checkbox-row">
                         <input
                             type="checkbox"
+                            data-settings-field="editorHotkeysEnabled"
+                            ${editorHotkeysEnabled ? 'checked' : ''}
+                        />
+                        <span>${escapeHtml(t('settings.editorHotkeys.enabled'))}</span>
+                    </label>
+                    <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.editorHotkeys.hint'))}</p>
+                    <label class="ne-settings-panel__checkbox-row">
+                        <input
+                            type="checkbox"
                             data-settings-field="newEntryExcludeRecursion"
                             ${newEntryExcludeRecursion ? 'checked' : ''}
                         />
@@ -111,6 +139,14 @@ export function renderSettingsPanel(settingsState, transferModel = {}, settingsU
                         />
                         <span>${escapeHtml(t('settings.newEntry.preventRecursion'))}</span>
                     </label>
+                    <div class="ne-settings-panel__group ne-settings-panel__group--tight">
+                        <p class="ne-settings-panel__subsection-label">${escapeHtml(t('settings.formatBar.title'))}</p>
+                        <p class="ne-settings-panel__section-meta ne-settings-panel__section-meta--inline">${escapeHtml(t('settings.formatBar.currentDevice', {
+                            device: t(`settings.formatBar.device.${activeFormatBarViewport}`),
+                        }))}</p>
+                        <p class="ne-settings-panel__transfer-hint">${escapeHtml(t('settings.formatBar.hint'))}</p>
+                        ${renderFormatBarCustomizer(formatBarTools, activeFormatBarViewport)}
+                    </div>
                 `,
             })}
 
@@ -134,6 +170,96 @@ export function renderSettingsPanel(settingsState, transferModel = {}, settingsU
                 isOpen: openSettingsSection === 'import-export',
                 body: renderTransferSection(transferModel, transferOverwriteExisting),
             })}
+        </div>
+    `;
+}
+
+function renderFormatBarCustomizer(formatBarTools = [], activeFormatBarViewport = 'desktop') {
+    const normalizedTools = normalizeFormatBarTools(formatBarTools);
+    const hasVisibleTools = normalizedTools.some((tool) => tool.visible);
+
+    return `
+        <div
+            class="ne-format-bar ne-settings-panel__format-preview"
+            aria-label="${escapeHtml(t('settings.formatBar.previewLabel', {
+                device: t(`settings.formatBar.device.${activeFormatBarViewport}`),
+            }))}"
+        >
+            ${hasVisibleTools
+                ? normalizedTools.map((toolState) => renderFormatBarPreviewItem(toolState)).join('')
+                : `<span class="ne-settings-panel__format-preview-empty">${escapeHtml(t('settings.formatBar.previewEmpty'))}</span>`}
+        </div>
+        <div class="ne-settings-panel__tool-list">
+            ${normalizedTools.map((toolState, index) => renderFormatBarToolRow(toolState, index, normalizedTools.length)).join('')}
+        </div>
+    `;
+}
+
+function renderFormatBarPreviewItem(toolState) {
+    const tool = getFormatBarToolDefinition(toolState.id);
+    if (!tool) {
+        return '';
+    }
+
+    const label = t(tool.labelKey);
+    const shortLabel = tool.shortLabelKey ? t(tool.shortLabelKey) : '';
+    const { markup, textOnly } = renderFormatBarToolContent(tool, { label, shortLabel });
+
+    return `
+        <span class="ne-btn ne-btn--soft ne-btn--format${textOnly ? ' ne-btn--format-text' : ''} ne-settings-panel__format-preview-item${toolState.visible ? '' : ' ne-settings-panel__format-preview-item--hidden'}">${markup}</span>
+    `;
+}
+
+function renderFormatBarToolRow(toolState, index, totalCount) {
+    const tool = getFormatBarToolDefinition(toolState.id);
+    if (!tool) {
+        return '';
+    }
+
+    const label = t(tool.labelKey);
+    const shortLabel = tool.shortLabelKey ? t(tool.shortLabelKey) : '';
+    const { markup, textOnly } = renderFormatBarToolContent(tool, { label, shortLabel });
+    const toggleId = `ne-settings-format-bar-tool-${tool.id}`;
+
+    return `
+        <div class="ne-settings-panel__tool-row">
+            <input
+                id="${escapeHtml(toggleId)}"
+                class="ne-settings-panel__tool-toggle"
+                type="checkbox"
+                data-settings-field="formatBarToolVisible:${escapeHtml(tool.id)}"
+                ${toolState.visible ? 'checked' : ''}
+            />
+            <label class="ne-settings-panel__tool-summary" for="${escapeHtml(toggleId)}">
+                <span class="ne-btn ne-btn--soft ne-btn--format${textOnly ? ' ne-btn--format-text' : ''} ne-settings-panel__tool-icon" aria-hidden="true">${markup}</span>
+                <span class="ne-settings-panel__tool-name">${escapeHtml(label)}</span>
+            </label>
+            <div class="ne-settings-panel__tool-order">
+                ${index > 0 ? `
+                    <button
+                        class="ne-btn ne-btn--soft ne-settings-panel__tool-order-btn"
+                        type="button"
+                        data-action="move-format-bar-tool-up"
+                        data-format-bar-tool-id="${escapeHtml(tool.id)}"
+                        aria-label="${escapeHtml(t('settings.formatBar.moveUp'))}"
+                        title="${escapeHtml(t('settings.formatBar.moveUp'))}"
+                    >
+                        <i class="fa-solid fa-arrow-up" aria-hidden="true"></i>
+                    </button>
+                ` : ''}
+                ${index < totalCount - 1 ? `
+                    <button
+                        class="ne-btn ne-btn--soft ne-settings-panel__tool-order-btn"
+                        type="button"
+                        data-action="move-format-bar-tool-down"
+                        data-format-bar-tool-id="${escapeHtml(tool.id)}"
+                        aria-label="${escapeHtml(t('settings.formatBar.moveDown'))}"
+                        title="${escapeHtml(t('settings.formatBar.moveDown'))}"
+                    >
+                        <i class="fa-solid fa-arrow-down" aria-hidden="true"></i>
+                    </button>
+                ` : ''}
+            </div>
         </div>
     `;
 }

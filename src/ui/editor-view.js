@@ -95,6 +95,7 @@ export function renderDocumentSourceTerms(documentModel) {
 export function renderLorebookMetadataTable(documentModel, {
     isExpanded = false,
     isOverflowOpen = false,
+    summaryLayout = null,
 } = {}) {
     const meta = documentModel?.meta ?? null;
     if (!documentModel || normaliseDocumentSource(documentModel.source) !== 'lorebook' || !meta) {
@@ -105,33 +106,54 @@ export function renderLorebookMetadataTable(documentModel, {
     const secondaryKeywords = Array.isArray(meta.secondaryKeywords) ? meta.secondaryKeywords : [];
     const logicOptions = Array.isArray(meta.secondaryKeywordLogicOptions) ? meta.secondaryKeywordLogicOptions : [];
     const selectedLogic = String(meta.secondaryKeywordLogic ?? '').trim();
-    const summaryText = buildLoreMetadataSummary(primaryKeywords, secondaryKeywords, selectedLogic, logicOptions);
+    const fullSummaryText = buildLoreMetadataSummary(primaryKeywords, secondaryKeywords, selectedLogic, logicOptions);
     const toggleLabel = isExpanded ? t('editor.lore.keywords.hide') : t('editor.lore.keywords.show');
     const advancedTraits = {
         excludeRecursion: Boolean(meta.nativeTraits?.excludeRecursion),
         preventRecursion: Boolean(meta.nativeTraits?.preventRecursion),
         probability: Number.isFinite(Number(meta.nativeTraits?.probability)) ? Number(meta.nativeTraits.probability) : 100,
     };
+    const primarySummary = buildKeywordSummaryState(primaryKeywords, summaryLayout?.primaryVisibleCount);
+    const secondarySummary = buildKeywordSummaryState(secondaryKeywords, summaryLayout?.secondaryVisibleCount);
+    const hasSecondaryKeywords = secondaryKeywords.length > 0;
 
     return `
-        <section class="ne-lore-meta${isExpanded ? ' ne-lore-meta--expanded' : ' ne-lore-meta--collapsed'}" aria-label="${escapeHtml(t('editor.lore.section'))}">
+        <section
+            class="ne-lore-meta${isExpanded ? ' ne-lore-meta--expanded' : ' ne-lore-meta--collapsed'}"
+            aria-label="${escapeHtml(t('editor.lore.section'))}"
+        >
             <div class="ne-lore-meta__header">
-                <div class="ne-lore-meta__summary">
-                    <span class="ne-lore-meta__summary-title">${escapeHtml(t('editor.lore.keywords.title'))}</span>
-                    <span class="ne-lore-meta__summary-text">${escapeHtml(summaryText)}</span>
-                </div>
-                <div class="ne-lore-meta__header-actions">
-                    <button
-                        class="ne-btn ne-btn--soft ne-btn--icon ne-btn--meta-toggle"
-                        type="button"
-                        data-action="toggle-lore-metadata"
-                        data-expanded="${isExpanded ? 'true' : 'false'}"
-                        aria-label="${escapeHtml(toggleLabel)}"
-                        aria-expanded="${isExpanded ? 'true' : 'false'}"
-                        title="${escapeHtml(toggleLabel)}"
+                <button
+                    class="ne-lore-meta__summary-toggle"
+                    type="button"
+                    data-action="toggle-lore-metadata"
+                    data-expanded="${isExpanded ? 'true' : 'false'}"
+                    aria-label="${escapeHtml(`${toggleLabel}. ${fullSummaryText}`)}"
+                    aria-expanded="${isExpanded ? 'true' : 'false'}"
+                    title="${escapeHtml(fullSummaryText)}"
+                >
+                    <span
+                        class="ne-lore-meta__summary-panel"
+                        data-has-secondary="${hasSecondaryKeywords ? 'true' : 'false'}"
                     >
-                        <i class="fa-solid fa-tags" aria-hidden="true"></i>
-                    </button>
+                        ${renderLoreMetadataSummaryGroup({
+                            fullLabel: t('keywords.preview.primary.full'),
+                            shortLabel: t('keywords.preview.primary.short'),
+                            groupName: 'primary',
+                            summaryState: primarySummary,
+                        })}
+                        ${hasSecondaryKeywords ? `
+                            <span class="ne-lore-meta__summary-separator" aria-hidden="true">|</span>
+                            ${renderLoreMetadataSummaryGroup({
+                                fullLabel: t('keywords.preview.secondary.full'),
+                                shortLabel: t('keywords.preview.secondary.short'),
+                                groupName: 'secondary',
+                                summaryState: secondarySummary,
+                            })}
+                        ` : ''}
+                    </span>
+                </button>
+                <div class="ne-lore-meta__header-actions">
                     <div class="ne-lore-meta__overflow-wrap">
                         <button
                             class="ne-btn ne-btn--soft ne-btn--icon ne-btn--overflow-trigger ne-btn--meta-overflow"
@@ -142,40 +164,38 @@ export function renderLorebookMetadataTable(documentModel, {
                             aria-expanded="${isOverflowOpen ? 'true' : 'false'}"
                             title="${escapeHtml(t('editor.lore.overflow.open'))}"
                         >
-                            <i class="fa-solid fa-ellipsis"></i>
+                            <span aria-hidden="true">&middot;&middot;&middot;</span>
                         </button>
                         ${isOverflowOpen ? renderLorebookAdvancedSettings(advancedTraits) : ''}
                     </div>
                 </div>
             </div>
-            ${isExpanded ? `
-                <div class="ne-lore-meta__body">
-                    ${renderLorebookMetadataRow(t('editor.lore.primaryKeywords.label'), primaryKeywords, {
-                        emptyHint: t('editor.lore.primaryKeywords.hint'),
-                        inputAction: 'add-document-primary-keyword',
-                        removeAction: 'remove-document-term',
-                    })}
-                    <div class="ne-lore-meta__row ne-lore-meta__row--logic">
-                        <div class="ne-lore-meta__label-wrap">
-                            <span class="ne-lore-meta__label">${escapeHtml(t('editor.lore.logic.label'))}</span>
-                        </div>
-                        <div class="ne-lore-meta__value">
-                            <select class="ne-input ne-lore-meta__select" data-action="set-document-secondary-logic">
-                                ${logicOptions.map((option) => `
-                                    <option value="${escapeHtml(option.key)}"${option.key === selectedLogic ? ' selected' : ''}>
-                                        ${escapeHtml(option.label)}
-                                    </option>
-                                `).join('')}
-                            </select>
-                        </div>
+            <div class="ne-lore-meta__body"${isExpanded ? '' : ' aria-hidden="true"'}>
+                ${renderLorebookMetadataRow(t('editor.lore.primaryKeywords.label'), primaryKeywords, {
+                    emptyHint: t('editor.lore.primaryKeywords.hint'),
+                    inputAction: 'add-document-primary-keyword',
+                    removeAction: 'remove-document-term',
+                })}
+                <div class="ne-lore-meta__row ne-lore-meta__row--logic">
+                    <div class="ne-lore-meta__label-wrap">
+                        <span class="ne-lore-meta__label">${escapeHtml(t('editor.lore.logic.label'))}</span>
                     </div>
-                    ${renderLorebookMetadataRow(t('editor.lore.secondaryKeywords.label'), secondaryKeywords, {
-                        emptyHint: t('editor.lore.secondaryKeywords.hint'),
-                        inputAction: 'add-document-secondary-keyword',
-                        removeAction: 'remove-document-secondary-term',
-                    })}
+                    <div class="ne-lore-meta__value">
+                        <select class="ne-input ne-lore-meta__select" data-action="set-document-secondary-logic">
+                            ${logicOptions.map((option) => `
+                                <option value="${escapeHtml(option.key)}"${option.key === selectedLogic ? ' selected' : ''}>
+                                    ${escapeHtml(option.label)}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
                 </div>
-            ` : ''}
+                ${renderLorebookMetadataRow(t('editor.lore.secondaryKeywords.label'), secondaryKeywords, {
+                    emptyHint: t('editor.lore.secondaryKeywords.hint'),
+                    inputAction: 'add-document-secondary-keyword',
+                    removeAction: 'remove-document-secondary-term',
+                })}
+            </div>
         </section>
     `;
 }
@@ -289,4 +309,44 @@ function buildKeywordPreview(label, keywords) {
     const preview = keywords.slice(0, 2).join(', ');
     const remainingCount = keywords.length - 2;
     return `${label}: ${preview}${remainingCount > 0 ? ` +${remainingCount}` : ''}`;
+}
+
+function renderLoreMetadataSummaryGroup({
+    fullLabel = '',
+    shortLabel = '',
+    groupName = '',
+    summaryState = { visibleItems: [], overflowCount: 0 },
+} = {}) {
+    const visibleText = summaryState.visibleItems.join(', ');
+
+    return `
+        <span class="ne-lore-meta__summary-group" data-group="${escapeHtml(groupName)}">
+            <span class="ne-lore-meta__summary-label-wrap">
+                <span class="ne-lore-meta__summary-label ne-lore-meta__summary-label--full">${escapeHtml(fullLabel)}:</span>
+                <span class="ne-lore-meta__summary-label ne-lore-meta__summary-label--short">${escapeHtml(shortLabel)}:</span>
+            </span>
+            <span class="ne-lore-meta__summary-value" data-role="summary-value">
+                ${summaryState.visibleItems.length
+                    ? `<span class="ne-lore-meta__summary-keywords">${escapeHtml(visibleText)}</span>`
+                    : `<span class="ne-lore-meta__summary-none">${escapeHtml(t('keywords.preview.none'))}</span>`
+                }
+                ${summaryState.overflowCount > 0
+                    ? `<span class="ne-lore-meta__summary-more">+${summaryState.overflowCount}</span>`
+                    : ''
+                }
+            </span>
+        </span>
+    `;
+}
+
+function buildKeywordSummaryState(keywords, visibleCount) {
+    const items = Array.isArray(keywords) ? keywords : [];
+    const resolvedVisibleCount = Number.isFinite(Number(visibleCount))
+        ? Math.max(items.length ? 1 : 0, Math.min(items.length, Number(visibleCount)))
+        : Math.min(items.length, 2);
+
+    return {
+        visibleItems: items.slice(0, resolvedVisibleCount),
+        overflowCount: Math.max(0, items.length - resolvedVisibleCount),
+    };
 }

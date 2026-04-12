@@ -4,9 +4,9 @@
 export const MOBILE_BREAKPOINT = 768;
 export const MOBILE_MARGIN = 12;
 export const DESKTOP_MARGIN = 0;
-export const DESKTOP_MIN_WIDTH = 80;
+export const DESKTOP_MIN_WIDTH = 220;
 export const DESKTOP_MIN_HEIGHT = 200;
-export const MOBILE_MIN_WIDTH = 280;
+export const MOBILE_MIN_WIDTH = 220;
 export const MOBILE_MIN_HEIGHT = 260;
 export const MOBILE_DEFAULT_WIDTH = 360;
 export const MOBILE_DEFAULT_HEIGHT_RATIO = 0.42;

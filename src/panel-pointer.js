@@ -435,7 +435,7 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
             return;
         }
 
-        if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
+        if (state.panelEl?.classList.contains(CLASS_FULLSCREEN) || isMobileEditingResizeSuppressed(state)) {
             return;
         }
 
@@ -570,7 +570,7 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
                 return;
             }
 
-            if (state.panelEl?.classList.contains(CLASS_FULLSCREEN)) {
+            if (state.panelEl?.classList.contains(CLASS_FULLSCREEN) || isMobileEditingResizeSuppressed(state)) {
                 return;
             }
 
@@ -651,6 +651,7 @@ export function initPanelResize(state, { onExitFullscreen, onResizeEnd, remember
     });
 }
 
+
 export function initPanelWheelResize(state, { onResizeEnd, rememberWindowedBounds } = {}) {
     const panel = state.panelEl;
     if (!panel) {
@@ -703,7 +704,12 @@ function getResizeHitZone(rect, event, toolbarRoot) {
         return '';
     }
 
+        if (event.currentTarget instanceof Element && event.currentTarget.classList.contains('ne-panel--mobile-editing') && isMobileViewport()) {
+        return '';
+    }
+
     const touchLike = event.pointerType === 'touch' || isMobileViewport();
+
     const edgeSize = touchLike ? RESIZE_EDGE_TOUCH : RESIZE_EDGE_POINTER;
     const cornerSize = touchLike ? RESIZE_CORNER_TOUCH : RESIZE_CORNER_POINTER;
     const toolbarBottom = toolbarRoot?.getBoundingClientRect().bottom ?? rect.top;
@@ -840,12 +846,13 @@ function setResizeHint(panel, zone = '') {
         return;
     }
 
-    if (!zone || isMobileViewport() || panel.classList.contains(CLASS_FULLSCREEN)) {
+        if (!zone || isMobileViewport() || panel.classList.contains(CLASS_FULLSCREEN) || isMobileEditingResizeSuppressed({ panelEl: panel })) {
         delete panel.dataset.resizeZone;
         return;
     }
 
     panel.dataset.resizeZone = zone;
+
 }
 
 export function shouldUseMobileTouchFallback() {
@@ -888,7 +895,12 @@ function clearDeferredTitleSkipClick(titleButton) {
     }, 0);
 }
 
+function isMobileEditingResizeSuppressed(state) {
+    return Boolean(state?.panelEl?.classList.contains('ne-panel--mobile-editing') && isMobileViewport());
+}
+
 function beginPointerInteraction(panel, cursor = '') {
+
     if (activeInteractionCount === 0) {
         document.addEventListener('selectstart', preventInteractionSelection, true);
         document.addEventListener('dragstart', preventInteractionSelection, true);
