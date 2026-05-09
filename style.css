@@ -1646,6 +1646,41 @@
     left: 0;
 }
 
+/* Re-scope CSS tokens when the tags menu is portaled outside #ne-panel */
+.ne-tags-menu[data-ne-tags-portal],
+.ne-tags-menu[data-ne-tags-portal] *,
+.ne-tags-menu[data-ne-tags-portal] *::before,
+.ne-tags-menu[data-ne-tags-portal] *::after {
+    box-sizing: border-box;
+}
+
+.ne-tags-menu[data-ne-tags-portal] {
+    --ne-surface-solid: rgb(from var(--SmartThemeBlurTintColor) r g b / 1);
+    --ne-surface-popover: var(--ne-surface-solid);
+    --ne-surface-card: var(--ne-surface-solid);
+    --ne-border: color-mix(in srgb, var(--SmartThemeBorderColor) 82%, transparent);
+    --ne-border-soft: color-mix(in srgb, var(--ne-border) 72%, transparent);
+    --ne-border-strong: color-mix(in srgb, var(--ne-border) 88%, transparent);
+    --ne-accent: var(--SmartThemeQuoteColor);
+    --ne-text: var(--SmartThemeBodyColor);
+    --ne-danger: var(--crimson70a, rgba(220, 20, 60, 0.7));
+    --ne-shadow-popover: 0 16px 34px rgb(0 0 0 / 0.28);
+    --ne-panel-blur: blur(22px);
+    --ne-popover-max-width: min(18rem, calc(100vw - 2rem));
+    --ne-font-scale: 1;
+    --ne-size: calc(var(--mainFontSize) * var(--ne-font-scale));
+    --ne-font-body: var(--ne-size);
+    --ne-font-body-sm: calc(var(--ne-size) * 0.92);
+    --ne-font-ui: calc(var(--ne-size) * 0.88);
+    --ne-font-support: calc(var(--ne-size) * 0.84);
+    --ne-font-label: calc(var(--ne-size) * 0.82);
+    --ne-font-caption: calc(var(--ne-size) * 0.78);
+    --ne-writing-font: Georgia, "Times New Roman", serif;
+    color: var(--ne-text);
+    font-size: var(--ne-font-body);
+    font-family: var(--ne-writing-font);
+}
+
 .ne-menu__section + .ne-menu__section {
     margin-top: 0.45rem;
     padding-top: 0.45rem;

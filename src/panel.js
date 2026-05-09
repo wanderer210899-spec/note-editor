@@ -57,6 +57,9 @@ const MOBILE_SIDEBAR_GESTURE_START_DISTANCE = 8;
 const MOBILE_SIDEBAR_GESTURE_TRIGGER_DISTANCE = 36;
 const MOBILE_NATIVE_EDGE_EXCLUSION = 20;
 
+/** SillyTavern closes the AI preset drawer on document-level outside taps; keep interactions inside the panel local. */
+const PRESET_DRAWER_GUARD_EVENTS = ['mousedown', 'pointerdown', 'click', 'touchstart', 'focusin', 'keydown'];
+
 const panelState = {
     panelEl: null,
     toolbarRefs: null,
@@ -112,6 +115,7 @@ export function createPanel() {
 
     host.appendChild(panelState.panelEl);
 
+    bindPresetDrawerInteractionGuard(panelState.panelEl);
     bindPanelEvents();
     syncToolbarSource(getSessionState());
     updateToolbarState();
@@ -287,6 +291,8 @@ function syncToolbarSource(sessionState, { forceRemount = false } = {}) {
     if (!forceRemount && panelState.toolbarSource === nextSource && panelState.toolbarRefs?.root?.isConnected) {
         return;
     }
+
+    closeToolbarTermsMenu();
 
     panelState.toolbarRefs = mountToolbar(panelState.panelEl?.querySelector('#ne-toolbar-host'), {
         source: nextSource,
@@ -1273,4 +1279,19 @@ function positionToolbarOverflowMenu(refs) {
 
 function clampNumber(value, min, max) {
     return Math.max(min, Math.min(max, value));
+}
+
+function bindPresetDrawerInteractionGuard(panelEl) {
+    if (!(panelEl instanceof HTMLElement) || panelEl.dataset.nePresetDrawerGuard === '1') {
+        return;
+    }
+
+    panelEl.dataset.nePresetDrawerGuard = '1';
+    const isolate = (event) => {
+        event.stopPropagation();
+    };
+
+    for (const type of PRESET_DRAWER_GUARD_EVENTS) {
+        panelEl.addEventListener(type, isolate, false);
+    }
 }

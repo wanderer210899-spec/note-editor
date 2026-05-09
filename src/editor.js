@@ -1173,6 +1173,7 @@ function syncTagsMenuState() {
         editorState.tagsMenuOpen,
         updateEditorTagsMenuPlacement,
         editorState.tagsMenuAnchorEl,
+        editorState.toolbarRefs?.root ?? null,
     );
 }
 

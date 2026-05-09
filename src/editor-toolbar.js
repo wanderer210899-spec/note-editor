@@ -67,7 +67,64 @@ export function updateDocumentTermsButtonState(tagsButtonEl, tagsButtonLabelEl, 
     tagsButtonEl.setAttribute('aria-label', termCount ? countLabel : buttonLabel);
 }
 
-export function syncTagsMenuState(tagsButtonEl, tagsMenuEl, tagsMenuOpen, updateTagsMenuPlacement, anchorEl = null) {
+let tagsMenuRestoreParent = null;
+
+function resolveTagsMenuStackingZIndex() {
+    const panel = document.getElementById('ne-panel');
+    const raw = panel ? getComputedStyle(panel).zIndex : '';
+    const parsed = parseInt(String(raw), 10);
+    const base = Number.isFinite(parsed) ? parsed : 20000;
+    return base + 120;
+}
+
+function attachTagsMenuViewportLayer(tagsMenuEl, toolbarRootEl) {
+    if (!tagsMenuEl || tagsMenuEl.parentElement === document.body) {
+        return;
+    }
+
+    tagsMenuRestoreParent = toolbarRootEl?.isConnected ? toolbarRootEl : tagsMenuEl.parentElement;
+    tagsMenuEl.dataset.neTagsPortal = '1';
+    tagsMenuEl.style.zIndex = String(resolveTagsMenuStackingZIndex());
+
+    const panel = document.getElementById('ne-panel');
+    if (panel) {
+        const computed = getComputedStyle(panel);
+        const fontScale = computed.getPropertyValue('--ne-font-scale').trim();
+        const writingFont = computed.getPropertyValue('--ne-writing-font').trim();
+        if (fontScale) tagsMenuEl.style.setProperty('--ne-font-scale', fontScale);
+        if (writingFont) tagsMenuEl.style.setProperty('--ne-writing-font', writingFont);
+    }
+
+    document.body.appendChild(tagsMenuEl);
+}
+
+function detachTagsMenuViewportLayer(tagsMenuEl, toolbarRootEl) {
+    if (!tagsMenuEl) {
+        return;
+    }
+
+    delete tagsMenuEl.dataset.neTagsPortal;
+    tagsMenuEl.style.removeProperty('z-index');
+    tagsMenuEl.style.removeProperty('--ne-font-scale');
+    tagsMenuEl.style.removeProperty('--ne-writing-font');
+
+    const slot = (toolbarRootEl && toolbarRootEl.isConnected)
+        ? toolbarRootEl
+        : (tagsMenuRestoreParent?.isConnected ? tagsMenuRestoreParent : null);
+    tagsMenuRestoreParent = null;
+
+    if (tagsMenuEl.parentElement !== document.body) {
+        return;
+    }
+
+    const fallbackSlot = document.querySelector('#ne-toolbar-host #ne-toolbar');
+    const targetSlot = (slot && slot.isConnected) ? slot : (fallbackSlot?.isConnected ? fallbackSlot : null);
+    if (targetSlot) {
+        targetSlot.appendChild(tagsMenuEl);
+    }
+}
+
+export function syncTagsMenuState(tagsButtonEl, tagsMenuEl, tagsMenuOpen, updateTagsMenuPlacement, anchorEl = null, toolbarRootEl = null) {
     if (!tagsMenuEl) {
         return;
     }
@@ -75,21 +132,25 @@ export function syncTagsMenuState(tagsButtonEl, tagsMenuEl, tagsMenuOpen, update
     if (tagsButtonEl) {
         tagsButtonEl.setAttribute('aria-expanded', String(tagsMenuOpen));
     }
-    tagsMenuEl.hidden = !tagsMenuOpen;
 
     if (tagsMenuOpen) {
+        attachTagsMenuViewportLayer(tagsMenuEl, toolbarRootEl);
+        tagsMenuEl.hidden = false;
         requestAnimationFrame(() => updateTagsMenuPlacement(anchorEl));
-    } else {
-        tagsMenuEl.classList.remove('ne-tags-menu--flip');
-        tagsMenuEl.style.position = '';
-        tagsMenuEl.style.top = '';
-        tagsMenuEl.style.right = '';
-        tagsMenuEl.style.left = '';
-        tagsMenuEl.style.bottom = '';
-        tagsMenuEl.style.transform = '';
-        tagsMenuEl.style.maxWidth = '';
-        tagsMenuEl.style.maxHeight = '';
+        return;
     }
+
+    tagsMenuEl.hidden = true;
+    tagsMenuEl.classList.remove('ne-tags-menu--flip');
+    tagsMenuEl.style.position = '';
+    tagsMenuEl.style.top = '';
+    tagsMenuEl.style.right = '';
+    tagsMenuEl.style.left = '';
+    tagsMenuEl.style.bottom = '';
+    tagsMenuEl.style.transform = '';
+    tagsMenuEl.style.maxWidth = '';
+    tagsMenuEl.style.maxHeight = '';
+    detachTagsMenuViewportLayer(tagsMenuEl, toolbarRootEl);
 }
 
 export function updateTagsMenuPlacement(tagsMenuEl, anchorEl = null) {
